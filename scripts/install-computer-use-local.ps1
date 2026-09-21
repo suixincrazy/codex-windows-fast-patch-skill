@@ -9,6 +9,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'lib\windows-cua-runtime.ps1')
 $LogPrefix = '[codex-computer-use-local]'
 $script:ConfigBackupBeforeOverwrite = @{}
 
@@ -358,6 +359,67 @@ function Get-ChromeUserDataDirectoryOverride {
   return $null
 }
 
+function Get-DesktopChromeUserDataDirectory {
+  $localAppData = $env:LOCALAPPDATA
+  if ([string]::IsNullOrWhiteSpace($localAppData)) {
+    $localAppData = Join-Path $env:USERPROFILE 'AppData\Local'
+  }
+  return [System.IO.Path]::GetFullPath((Join-Path $localAppData 'Google\Chrome\User Data'))
+}
+
+function Sync-DesktopVisibleChromeProfileRoot {
+  param([string]$ChromeUserDataDirectory)
+
+  if ([string]::IsNullOrWhiteSpace($ChromeUserDataDirectory) -or
+      -not (Test-Path -LiteralPath $ChromeUserDataDirectory -PathType Container)) {
+    throw "Chrome user data directory is unavailable for Desktop visibility repair: $ChromeUserDataDirectory"
+  }
+
+  $sourceRoot = (Resolve-Path -LiteralPath $ChromeUserDataDirectory).ProviderPath.TrimEnd('\')
+  $desktopRoot = (Get-DesktopChromeUserDataDirectory).TrimEnd('\')
+  if ($sourceRoot -ieq $desktopRoot) {
+    Write-Log "Chrome profile root is already visible to Desktop: $desktopRoot"
+    return $desktopRoot
+  }
+
+  if (Test-Path -LiteralPath $desktopRoot) {
+    if (-not (Test-Path -LiteralPath $desktopRoot -PathType Container)) {
+      throw "Desktop Chrome profile root exists but is not a directory: $desktopRoot"
+    }
+
+    $item = Get-Item -LiteralPath $desktopRoot -Force
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+      Write-Log "preserving existing real Desktop Chrome profile root: $desktopRoot"
+      return $desktopRoot
+    }
+
+    $targets = @($item.Target)
+    if ($targets.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$targets[0])) {
+      throw "Desktop Chrome profile root has an unreadable reparse target: $desktopRoot"
+    }
+    $target = [Environment]::ExpandEnvironmentVariables([string]$targets[0])
+    if (-not [System.IO.Path]::IsPathRooted($target)) {
+      $target = Join-Path (Split-Path -Parent $desktopRoot) $target
+    }
+    try {
+      $resolvedTarget = (Resolve-Path -LiteralPath $target -ErrorAction Stop).ProviderPath.TrimEnd('\')
+    } catch {
+      throw "Desktop Chrome profile root has a missing reparse target: $desktopRoot -> $target"
+    }
+    if ($resolvedTarget -ine $sourceRoot) {
+      throw "Desktop Chrome profile root points at a different directory and was not changed: $desktopRoot -> $resolvedTarget"
+    }
+
+    Write-Log "Desktop Chrome profile root mapping is current: $desktopRoot -> $sourceRoot"
+    return $desktopRoot
+  }
+
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $desktopRoot) | Out-Null
+  New-Item -ItemType Junction -Path $desktopRoot -Target $sourceRoot | Out-Null
+  Write-Log "created Desktop-visible Chrome profile root: $desktopRoot -> $sourceRoot"
+  return $desktopRoot
+}
+
 function Enable-UserEnvironment {
   param([string]$MarketplaceRoot)
 
@@ -377,9 +439,16 @@ function Enable-UserEnvironment {
   }
 
   $chromeUserDataDirectory = Get-ChromeUserDataDirectoryOverride
+  $desktopChromeUserDataDirectory = $null
   if ($chromeUserDataDirectory) {
     [Environment]::SetEnvironmentVariable('CODEX_CHROME_USER_DATA_DIR', $chromeUserDataDirectory, 'User')
     $env:CODEX_CHROME_USER_DATA_DIR = $chromeUserDataDirectory
+
+    # Desktop's own extension detector never reads CODEX_CHROME_USER_DATA_DIR.
+    # It only scans %LOCALAPPDATA%/%APPDATA% + Google\Chrome\User Data, so a
+    # custom Chrome data directory makes Desktop believe the extension is
+    # uninstalled and delete the native host registration on every launch.
+    $desktopChromeUserDataDirectory = Sync-DesktopVisibleChromeProfileRoot $chromeUserDataDirectory
   } else {
     Write-Log 'warning: Chrome user data directory was not detected; CODEX_CHROME_USER_DATA_DIR was not changed'
   }
@@ -408,6 +477,9 @@ public static class CodexEnvBroadcast {
   }
   if ($chromeUserDataDirectory) {
     Write-Log "enabled CODEX_CHROME_USER_DATA_DIR=$chromeUserDataDirectory for this process and the current user"
+  }
+  if ($desktopChromeUserDataDirectory) {
+    Write-Log "Desktop-visible Chrome profile root ready: $desktopChromeUserDataDirectory"
   }
 }
 
@@ -1719,6 +1791,27 @@ function Install-BundledMarketplacePluginWithCodexCli {
   Write-Log "registered bundled plugin with Codex CLI: $selector"
 }
 
+function Assert-BundledMarketplacePluginInstalledWithCodexCli {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$PluginName
+  )
+
+  # Re-adding an already installed plugin makes the CLI back up its cache entry,
+  # which fails while Desktop or an extension host holds those files. The
+  # invariant Desktop reads is the installed state itself, so only add when the
+  # plugin is actually missing.
+  if (Test-BundledMarketplacePluginInstalledWithCodexCli $PluginName) {
+    Write-Log "bundled plugin already registered with Codex CLI: $PluginName@openai-bundled"
+    return
+  }
+
+  Install-BundledMarketplacePluginWithCodexCli $PluginName
+  if (-not (Test-BundledMarketplacePluginInstalledWithCodexCli $PluginName)) {
+    throw "Codex CLI did not report $PluginName@openai-bundled as installed after registration"
+  }
+}
+
 function Get-BundledMarketplacePluginListWithCodexCli {
   param([switch]$IncludeAvailable)
 
@@ -2818,6 +2911,81 @@ function Test-ChromeNativeMessagingManifest {
   Write-Log "Chrome native messaging manifest verification ok: origins=$($settings.AllowedOrigins.Count)"
 }
 
+function Test-DesktopChromeNativeHostLifecycle {
+  # Desktop reconciles the Chrome native host on every launch, but only for a
+  # chrome plugin it already considers installed. When that plugin is missing it
+  # takes the opposite branch and removes the manifest, the HKCU key and both
+  # v2 state entries, which is exactly what does not survive a Desktop restart.
+  if (-not (Test-BundledMarketplacePluginInstalledWithCodexCli 'chrome')) {
+    throw 'chrome@openai-bundled is not installed, so Codex Desktop will delete the Chrome native host registration on its next launch'
+  }
+  Write-Log 'Chrome native-host lifecycle verification ok: chrome@openai-bundled is installed, so Desktop reconciles instead of deleting'
+}
+
+function Test-DesktopChromeExtensionVisible {
+  param(
+    [string]$ChromeCacheRoot,
+    [pscustomobject]$RuntimeInventory
+  )
+
+  $checkScript = Join-Path $ChromeCacheRoot 'scripts\check-extension-installed.js'
+  if (-not (Test-Path -LiteralPath $checkScript -PathType Leaf)) {
+    throw "missing official Chrome extension diagnostic: $checkScript"
+  }
+
+  $desktopRoot = Get-DesktopChromeUserDataDirectory
+  if (-not (Test-Path -LiteralPath $desktopRoot -PathType Container)) {
+    throw "Chrome profile root that Codex Desktop scans does not exist: $desktopRoot"
+  }
+
+  # Desktop resolves the profile root from LOCALAPPDATA/APPDATA only. Clearing
+  # both diagnostic overrides makes the official checker use exactly the root
+  # Desktop uses, so a green result here is the invariant Desktop evaluates.
+  $overrideNames = @('CODEX_CHROMIUM_USER_DATA_DIR', 'CODEX_CHROME_USER_DATA_DIR', 'CODEX_CHROMIUM_PREFERENCES_PATH', 'CODEX_CHROME_PREFERENCES_PATH')
+  $previousOverrides = @{}
+  foreach ($name in $overrideNames) {
+    $previousOverrides[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+  }
+  # The official checker reports failures on stderr, which $ErrorActionPreference
+  # 'Stop' would turn into a NativeCommandError before the exit code can be read.
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    foreach ($name in $overrideNames) {
+      [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+    }
+    $output = @(& $RuntimeInventory.NodePath $checkScript '--browser' 'chrome' '--json' 2>&1)
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+    foreach ($name in $overrideNames) {
+      [Environment]::SetEnvironmentVariable($name, $previousOverrides[$name], 'Process')
+    }
+  }
+
+  $text = ($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
+  if ($exitCode -ne 0) {
+    throw "Codex Desktop cannot see the Chrome extension in $desktopRoot (official diagnostic exit=$exitCode): $text"
+  }
+
+  try {
+    $status = $text | ConvertFrom-Json -ErrorAction Stop
+  } catch {
+    throw "official Chrome extension diagnostic returned invalid JSON: $text"
+  }
+  if (-not [bool]$status.installed -or -not [bool]$status.enabled) {
+    throw "official Chrome extension diagnostic did not report an installed and enabled extension: $text"
+  }
+
+  $reportedRoot = [string]$status.userDataDirectory
+  if ([string]::IsNullOrWhiteSpace($reportedRoot) -or
+      ([System.IO.Path]::GetFullPath($reportedRoot).TrimEnd('\') -ine $desktopRoot.TrimEnd('\'))) {
+    throw "official Chrome extension diagnostic did not evaluate the Desktop-visible profile root: $reportedRoot"
+  }
+
+  Write-Log "Desktop-visible Chrome extension verification ok: root=$desktopRoot extension=$([string]$status.extensionId)"
+}
+
 function Test-ChromeAppServerHostConfig {
   param(
     [string]$ChromeCacheRoot,
@@ -3675,6 +3843,10 @@ function Install-ComputerUse {
   }
 
   $runtimeInventory = Get-CurrentCodexAppServerRuntimeInventory
+  $entryInstructions = Repair-WindowsCuaEntryInstructions `
+    -NodeModulesRoot (Join-Path (Split-Path -Parent $runtimeInventory.NodePath) 'node_modules') `
+    -BackupRoot (Join-Path $codexHomeResolved 'backups\cua-instructions')
+  Write-Log "Windows CUA entry instructions patch result: $entryInstructions"
   Invoke-ChromeOfficialManifestInstall $chromeCacheRoot $runtimeInventory
   Update-ChromeNativeHostV2State $chromeCacheRoot $runtimeInventory $codexHomeResolved
 
@@ -3686,7 +3858,10 @@ function Install-ComputerUse {
   # A cache plus a hand-written enabled entry is not an installed plugin to the
   # current CLI. Browser is part of this repair; unrelated optional plugins keep
   # their existing installed/enabled state.
-  Install-BundledMarketplacePluginWithCodexCli 'browser'
+  Assert-BundledMarketplacePluginInstalledWithCodexCli 'browser'
+  # Desktop only rebuilds the native host when the chrome plugin resolves to
+  # 'current'. A missing chrome plugin makes it take the delete branch instead.
+  Assert-BundledMarketplacePluginInstalledWithCodexCli 'chrome'
   Update-CodexConfig $marketplaceRoot
 
   Write-Log "installed marketplace plugin: $pluginSourceRoot"
@@ -3701,9 +3876,14 @@ function Test-ComputerUse {
   $installedChromeVersion = Get-PluginVersion $installedChromeRoot
   $installedChromeCacheRoot = Join-Path $codexHomeResolved "plugins\cache\openai-bundled\chrome\$installedChromeVersion"
   $runtimeInventory = Get-CurrentCodexAppServerRuntimeInventory
+  $entryInstructions = Repair-WindowsCuaEntryInstructions `
+    -NodeModulesRoot (Join-Path (Split-Path -Parent $runtimeInventory.NodePath) 'node_modules') -VerifyOnly
+  Write-Log "Windows CUA entry instructions verification: $entryInstructions"
   Test-ChromeNativeMessagingManifest $installedChromeCacheRoot
   Test-ChromeAppServerHostConfig $installedChromeCacheRoot $runtimeInventory
   Test-ChromeNativeHostV2State $installedChromeCacheRoot $runtimeInventory $codexHomeResolved
+  Test-DesktopChromeExtensionVisible $installedChromeCacheRoot $runtimeInventory
+  Test-DesktopChromeNativeHostLifecycle
   if ($VerifyAllBundledPluginsAvailable) {
     $stableMarketplaceRoot = Get-StableBundledMarketplaceRoot $codexHomeResolved
     Test-AllBundledMarketplacePluginsAvailableWithCodexCli $stableMarketplaceRoot $installedMarketplaceRoot
@@ -3865,6 +4045,8 @@ function Test-ComputerUse {
   if ($userChromeUserDataDirectory -ine $detectedChromeUserDataDirectory) {
     throw "CODEX_CHROME_USER_DATA_DIR does not match the detected Chrome profile root: $detectedChromeUserDataDirectory"
   }
+  Test-DesktopChromeExtensionVisible $chromeCacheVersionRoot $runtimeInventory
+  Test-DesktopChromeNativeHostLifecycle
 
   Test-CodexConfig (Join-Path $codexHomeResolved 'config.toml') $marketplaceRoot
   Test-NodeReplTrustedPathRepair `
@@ -3897,4 +4079,15 @@ if ($VerifyOnly) {
 }
 
 Install-ComputerUse
-Test-ComputerUse
+try {
+  Test-ComputerUse
+} catch {
+  # The install path can leave a freshly rebuilt plugin-cache path temporarily
+  # unavailable to the immediate verification pass. -VerifyOnly already
+  # repairs and retries once; install mode must not be the strictly weaker
+  # path, because the orchestrator runs install mode first.
+  Write-Log "verification after install failed: $($_.Exception.Message)"
+  Write-Log 'repairing local Computer Use plugin and retrying verification'
+  Install-ComputerUse
+  Test-ComputerUse
+}

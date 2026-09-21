@@ -369,3 +369,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$SkillRoot\scripts\test-com
 ```
 
 The regression validates the exact original and candidate hashes, unknown-hash rejection, and the platform guard using a temporary helper copy. On Windows 11 it must reject installation and leave that copy unchanged; it does not perform or claim Windows 10 capture acceptance. It also asserts that the pending end-to-end validation field remains empty.
+
+### `@oai/sky 0.7.1` helper `D09A2F3F` / Desktop 26.915.4065.0
+
+Windows 10 build `19045` reproduces `SetIsBorderRequired failed` and `0x80004002` with the complete original SHA-256 `D09A2F3F4C144BE9C180509F5CD67D60F4B0B6FBB62E0F5A1EE131F4B653C512`. The guarded patch produces `F406A337F4EA6D794DB2E804DFBE880CE06BF8FBAEC565212411474D02E9545D`.
+
+This is a new code layout. The five raw offsets are `0x3D82D`, `0x41451`, `0x41462`, `0x126778`, and `0x12C4C8`. The 132-byte MTA wrapper fits the available executable padding without overwriting the PE runtime trailer. The callback vtable points at the new wrapper. Earlier 169-byte wrappers must not be copied to this build.
+
+Acceptance on Desktop `26.915.4065.0` used the official sky runtime and the exact helper above. Twenty Explorer captures succeeded, with 517 ms for the cold frame and 32-52 ms for subsequent frames. The resource samples stayed stable after initialization. A separate six-frame Task Manager Performance batch returned six distinct complete images; the live runtime then returned four further Performance frames over six seconds, with visible CPU graph changes. Each of those four decoded images was inspected together with the captured accessibility state. No `SetIsBorderRequired` or `0x80004002` error occurred. The helper embedded in the signed MSIX and the extracted runtime have the same complete patched hash.
+
+The regression exercises original detection, candidate hash, install, idempotence, rollback, and unknown-hash rejection using an isolated copy. This native helper acceptance does not assert that a browser tab or the separate Swift control service was exercised.
+
+The full Windows 10 MSIX flow now checks and patches the staged helper before packaging. Unknown hashes stop the build, and targeted Model Experience, marketplace, and CUA-surface repairs do not add this separate binary operation.

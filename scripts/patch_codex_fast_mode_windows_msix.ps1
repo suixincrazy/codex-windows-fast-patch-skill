@@ -22,6 +22,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'lib\windows-cua-runtime.ps1')
 $LogPrefix = '[codex-msix-patch-win]'
 $OutputRootWasExplicit = $PSBoundParameters.ContainsKey('OutputRoot')
 $WindowsSdkBuildToolsPackageId = 'microsoft.windows.sdk.buildtools'
@@ -1732,12 +1733,16 @@ if (!after.includes(copyPatchedMarker) && !hasNativeWindowsCopyFallback) {
 
 if (!after.includes(sitesPatchedMarker)) {
   const sitesAvailabilityRe = /isAvailable:\(\{features:([A-Za-z_$][\w$]*)\}\)=>\1\.sites/;
-  if (!sitesAvailabilityRe.test(after)) {
+  const sitesRetirementRe = /async function [A-Za-z_$][\w$]*\(([A-Za-z_$][\w$]*)\)\{let\{plugins:([A-Za-z_$][\w$]*)\}=await \1\.getUserSavedConfiguration\(\);typeof \2==`object`&&\2&&!Array\.isArray\(\2\)&&Object\.hasOwn\(\2,`sites@openai-bundled`\)&&await \1\.uninstallPlugin\(\{pluginId:`sites@openai-bundled`\}\)\}/g;
+  const sitesRetired = [...after.matchAll(sitesRetirementRe)].length === 1 &&
+    !/\.\.\.[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\.sites\b/.test(after);
+  if (sitesAvailabilityRe.test(after)) {
+    after = after.replace(sitesAvailabilityRe, `isAvailable:()=>!0/*${sitesPatchedMarker}*/`);
+    changed = true;
+  } else if (!sitesRetired) {
     process.stderr.write('bundled-marketplace-sites-availability-target-not-found\n');
     process.exit(2);
   }
-  after = after.replace(sitesAvailabilityRe, `isAvailable:()=>!0/*${sitesPatchedMarker}*/`);
-  changed = true;
 }
 
 if (!after.includes(deepResearchPatchedMarker)) {
@@ -2622,6 +2627,21 @@ function Invoke-PatchAppAsar {
     return $true
   }
 
+  # Current runtime-backed CUA plugins need the Windows surface gate in addition
+  # to the shared Computer Use feature gate. Older bundles have no surface list.
+  $computerUseSurface = 'not-applicable'
+  $surfaceCandidates = @(Invoke-RgList $rgPath 'cuaReplSurfaces|CODEX_CUA_WINDOWS_SURFACE_V1' (Join-Path $extractDir '.vite\build'))
+  if ($surfaceCandidates.Count -gt 0) {
+    $computerUseSurfaceTarget = Find-ComputerUseSurfaceTarget $extractDir
+    Write-Log "Windows CUA surface patch target: $computerUseSurfaceTarget"
+    $computerUseSurface = Invoke-NodePatcher $nodePath $patchers.ComputerUseSurface @($computerUseSurfaceTarget)
+    & $nodePath --check $computerUseSurfaceTarget
+    if ($LASTEXITCODE -ne 0) {
+      Fail "Windows CUA surface patched asset failed node --check: $computerUseSurfaceTarget"
+    }
+  }
+  Write-Log "Windows CUA surface patch result: $computerUseSurface"
+
   $targets = Find-PatchTargets $rgPath $extractDir
 
   $fast = Invoke-NodePatcher $nodePath $patchers.Fast @($targets.FastMode)
@@ -2662,6 +2682,8 @@ function Invoke-PatchAppAsar {
   Write-Log "computer-use gate patch result: $computerUse"
   $nodeReplTrustedPaths = Invoke-NodePatcher $nodePath $patchers.NodeReplTrustedPaths @($targets.NodeReplTrustedPaths)
   Write-Log "Node REPL trusted-paths patch result: $nodeReplTrustedPaths"
+  $nodeReplProxyEnv = Invoke-NodePatcher $nodePath (Join-Path $PSScriptRoot 'patch-node-repl-proxy-env.cjs') @($targets.NodeReplTrustedPaths)
+  Write-Log "Node REPL proxy environment patch result: $nodeReplProxyEnv"
   $bundledMarketplaceCopy = Invoke-NodePatcher $nodePath $patchers.BundledMarketplaceCopy @($targets.BundledMarketplaceCopy)
   Write-Log "bundled marketplace copy patch result: $bundledMarketplaceCopy"
 
@@ -2687,7 +2709,9 @@ function Invoke-PatchAppAsar {
       $browserUse -eq 'already-patched' -and
       $computerUse -eq 'already-patched' -and
       $nodeReplTrustedPaths -eq 'already-patched' -and
-      $bundledMarketplaceCopy -eq 'already-patched') {
+      $nodeReplProxyEnv -in @('already-patched', 'not-applicable') -and
+      $bundledMarketplaceCopy -eq 'already-patched' -and
+      $computerUseSurface -in @('already-patched', 'not-applicable')) {
     Write-Log 'asar patch already present'
     return $false
   }
@@ -2724,15 +2748,23 @@ function Test-CodeSigningCertificate {
 
 function Get-OrCreateSigningCertificate {
   param([string]$Publisher)
-  $cert = Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue |
-    Where-Object {
-      $_.Subject -eq $Publisher -and
-      $_.HasPrivateKey -and
-      $_.NotAfter -gt (Get-Date) -and
-      (Test-CodeSigningCertificate $_)
-    } |
-    Sort-Object NotAfter -Descending |
-    Select-Object -First 1
+  # The SDK's Certificate provider can be absent in a clean Windows PowerShell
+  # session. Reading the store directly still finds an existing signing key.
+  $store = [Security.Cryptography.X509Certificates.X509Store]::new('My', 'CurrentUser')
+  try {
+    $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+    $cert = $store.Certificates |
+      Where-Object {
+        $_.Subject -eq $Publisher -and
+        $_.HasPrivateKey -and
+        $_.NotAfter -gt (Get-Date) -and
+        (Test-CodeSigningCertificate $_)
+      } |
+      Sort-Object NotAfter -Descending |
+      Select-Object -First 1
+  } finally {
+    $store.Close()
+  }
   if ($cert) {
     Write-Log "using existing signing certificate: $($cert.Thumbprint)"
     return $cert
@@ -3363,6 +3395,19 @@ try {
 
   $chromeRegistryParsing = Patch-ChromePluginWindowsRegistryParsing $workApp
   Write-Log "Chrome localized registry parsing patch result: $chromeRegistryParsing"
+
+  # Validate the runtime inside the package copy before it can enter an MSIX.
+  if (-not ($OnlyBundledMarketplaceCopy -or $OnlyComputerUseSurface -or $OnlyModelExperience)) {
+    $stagedNodeModules = Join-Path $workApp 'resources\cua_node\bin\node_modules'
+    $entryInstructions = Repair-WindowsCuaEntryInstructions -NodeModulesRoot $stagedNodeModules
+    Write-Log "Windows CUA entry instructions patch result: $entryInstructions"
+    $stagedHelper = Join-Path $stagedNodeModules '@oai\sky\bin\windows\codex-computer-use.exe'
+    $helperPatch = Repair-StagedWindowsComputerUseHelper `
+      -HelperPath $stagedHelper `
+      -PatcherPath (Join-Path $PSScriptRoot 'patch-computer-use-helper-win10.ps1') `
+      -BackupRoot (Join-Path $tempWork 'helper-backup')
+    Write-Log "staged Windows 10 helper patch result: $helperPatch"
+  }
 
   $patched = Invoke-PatchAppAsar $workApp $sourceApp $tempWork
   $asar = Join-Path $workApp 'resources\app.asar'
