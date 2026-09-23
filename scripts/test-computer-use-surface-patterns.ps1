@@ -147,6 +147,54 @@ console.log(`CUA_BEHAVIOR_MATRIX_PASSED cases=${cases}`);
 & $node.Source $behaviorPath $positive.AssetPath
 if ($LASTEXITCODE -ne 0) { throw 'CUA platform/feature behavior matrix failed' }
 
+# Desktop 26.917 removed computerUseNodeRepl without opening the platform gates.
+$modernReadiness = 'function ready(t,o,a,n,e,s){return t.browserUseTinysky&&!o&&a.nodePath!=null&&a.nodeReplPath!=null&&n.Gu(e,`mcpToolExposure`)&&s?.plugin.installed===!0&&s.plugin.enabled&&s.plugin.availability===`AVAILABLE`}'
+$modernSource = $positiveSource + $modernReadiness
+$modern = Invoke-PatcherFixture -Name 'current-without-node-repl-flag' -Source $modernSource -ExpectedExitCode 0
+$modernPatched = [IO.File]::ReadAllText($modern.AssetPath)
+if ($modern.Output -cne 'patched' -or $modernPatched.Contains('computerUseNodeRepl')) {
+  throw 'modern layout must not add a removed feature dependency'
+}
+$modernSecond = Invoke-PatcherFixture -Name 'modern-idempotent' -Source $modernPatched -ExpectedExitCode 0
+if ($modernSecond.Output -cne 'already-patched' -or [IO.File]::ReadAllText($modernSecond.AssetPath) -cne $modernPatched) {
+  throw 'modern layout is not idempotent'
+}
+$modernBehaviorPath = Join-Path $fixtureRoot 'modern-behavior.cjs'
+[IO.File]::WriteAllText($modernBehaviorPath, @'
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const context = vm.createContext({});
+vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), context);
+let cases = 0;
+for (const platform of ['darwin', 'win32', 'linux']) {
+  for (const f of [false, true]) for (const computerUse of [false, true])
+  for (const enabled of [false, true]) for (const serviceAppPath of [null, '/service']) {
+    const expected = f && computerUse && (platform === 'win32' ||
+      platform === 'darwin' && enabled && serviceAppPath !== null);
+    assert.equal(context.buildSurface(f, {platform}, {computerUse}, {enabled, paths:{serviceAppPath}}), expected);
+    cases++;
+  }
+}
+for (const browserUseTinysky of [false, true]) for (const wsl of [false, true])
+for (const nodePath of [null, '/node']) for (const nodeReplPath of [null, '/repl'])
+for (const exposure of [false, true]) for (const installed of [false, true])
+for (const enabled of [false, true]) for (const availability of ['AVAILABLE','DISABLED']) {
+  const ready = !!context.ready({browserUseTinysky}, wsl, {nodePath,nodeReplPath},
+    {Gu:()=>exposure}, 'version', {plugin:{installed,enabled,availability}});
+  const expected = browserUseTinysky && !wsl && nodePath !== null && nodeReplPath !== null &&
+    exposure && installed && enabled && availability === 'AVAILABLE';
+  assert.equal(ready, expected);
+  assert.equal(context.buildSurface(ready,{platform:'win32'},{computerUse:true},{enabled:false,paths:{serviceAppPath:null}}),expected);
+  cases++;
+}
+console.log(`MODERN_CUA_BEHAVIOR_MATRIX_PASSED cases=${cases}`);
+'@, [Text.UTF8Encoding]::new($false))
+& $node.Source $modernBehaviorPath $modern.AssetPath
+if ($LASTEXITCODE -ne 0) { throw 'modern CUA readiness/platform behavior matrix failed' }
+& $node.Source --check $modern.AssetPath
+if ($LASTEXITCODE -ne 0) { throw 'modern CUA output syntax check failed' }
+
 $negativeSource = 'const unrelated={platform:`darwin`,computerUse:true};'
 $negative = Invoke-PatcherFixture -Name 'unknown-layout' -Source $negativeSource -ExpectedExitCode 2
 if ($negative.Output -cne 'current CUA surface anchors not found exactly once: plugin=0 surface=0') {
@@ -173,6 +221,8 @@ function Assert-RejectedUnchanged {
   }
 }
 
+Assert-RejectedUnchanged 'modern-corrupt-readiness' ($modernPatched.Replace('t.browserUseTinysky', 't.unknownFlag'))
+Assert-RejectedUnchanged 'modern-duplicate-readiness' ($modernPatched + $modernReadiness)
 Assert-RejectedUnchanged 'marker-only' '/*CODEX_CUA_WINDOWS_SURFACE_V1*/const unrelated=1;'
 Assert-RejectedUnchanged 'marker-with-original-gates' ($positiveSource + '/*CODEX_CUA_WINDOWS_SURFACE_V1*/')
 Assert-RejectedUnchanged 'marker-with-corrupt-gate' ($patched.Replace('t.computerUseNodeRepl', 't.unknownFlag'))
@@ -209,6 +259,8 @@ $candidate = Join-Path $buildRoot 'renamed-main.js'
 $metadata = '/*CUA_REPL_ENABLED_SURFACES cuaReplSurfaces computerUseNodeRepl*/'
 [IO.File]::WriteAllText($candidate, $positiveSource + $metadata)
 if ((Find-ComputerUseSurfaceTarget $selectionRoot) -cne $candidate) { throw 'content-based selection failed' }
+[IO.File]::WriteAllText($candidate, $modernSource + '/*CUA_REPL_ENABLED_SURFACES cuaReplSurfaces*/')
+if ((Find-ComputerUseSurfaceTarget $selectionRoot) -cne $candidate) { throw 'modern target selection failed' }
 [IO.File]::WriteAllText($candidate, $patched + $metadata)
 if ((Find-ComputerUseSurfaceTarget $selectionRoot) -cne $candidate) { throw 'patched target selection failed' }
 $secondCandidate = Join-Path $buildRoot 'second-main.js'

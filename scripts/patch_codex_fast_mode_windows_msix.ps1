@@ -1816,7 +1816,13 @@ const marker = 'CODEX_CUA_WINDOWS_SURFACE_V1';
 const originalPluginGate = 'if(!r.installed||i==null||a&&e.platform!==`darwin`)return null;';
 const patchedPluginGate = 'if(!r.installed||i==null||a&&(e.platform!==`darwin`&&e.platform!==`win32`))return null;';
 const originalSurfaceGate = 'p=f&&l.platform===`darwin`&&t.computerUse&&u.enabled&&u.paths.serviceAppPath!=null';
-const patchedSurfaceGate = 'p=f&&(l.platform===`darwin`&&t.computerUse&&u.enabled&&u.paths.serviceAppPath!=null||l.platform===`win32`&&t.computerUse&&t.computerUseNodeRepl)';
+// Desktop 26.917 removes computerUseNodeRepl. Its shared readiness result f
+// already requires the enabled CUA plugin, both Node paths and mcpToolExposure.
+const modernReadiness = 'return t.browserUseTinysky&&!o&&a.nodePath!=null&&a.nodeReplPath!=null&&n.Gu(e,`mcpToolExposure`)&&s?.plugin.installed===!0&&s.plugin.enabled&&s.plugin.availability===`AVAILABLE`';
+const modernLayout = count(modernReadiness) === 1 && !text.includes('computerUseNodeRepl');
+const patchedSurfaceGate = modernLayout
+  ? 'p=f&&t.computerUse&&(l.platform===`darwin`&&u.enabled&&u.paths.serviceAppPath!=null||l.platform===`win32`)'
+  : 'p=f&&(l.platform===`darwin`&&t.computerUse&&u.enabled&&u.paths.serviceAppPath!=null||l.platform===`win32`&&t.computerUse&&t.computerUseNodeRepl)';
 
 function count(value, source = text) {
   let total = 0;
@@ -2381,7 +2387,8 @@ function Find-ComputerUseSurfaceTarget {
     if ($text.Contains('CODEX_CUA_WINDOWS_SURFACE_V1') -or
         ($text.Contains('CUA_REPL_ENABLED_SURFACES') -and
          $text.Contains('cuaReplSurfaces') -and
-         $text.Contains('computerUseNodeRepl') -and
+         ($text.Contains('computerUseNodeRepl') -or
+          $text.Contains('return t.browserUseTinysky&&!o&&a.nodePath!=null&&a.nodeReplPath!=null&&n.Gu(e,`mcpToolExposure`)&&s?.plugin.installed===!0&&s.plugin.enabled&&s.plugin.availability===`AVAILABLE`')) -and
          $text.Contains('serviceAppPath!=null') -and
          $text.Contains('platform===`darwin`'))) {
       $candidate.FullName
