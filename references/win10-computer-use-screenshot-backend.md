@@ -381,3 +381,15 @@ Acceptance on Desktop `26.915.4065.0` used the official sky runtime and the exac
 The regression exercises original detection, candidate hash, install, idempotence, rollback, and unknown-hash rejection using an isolated copy. This native helper acceptance does not assert that a browser tab or the separate Swift control service was exercised.
 
 The full Windows 10 MSIX flow now checks and patches the staged helper before packaging. Unknown hashes stop the build, and targeted Model Experience, marketplace, and CUA-surface repairs do not add this separate binary operation.
+
+### `@oai/sky 0.7.1` / Desktop 26.917 validation
+
+Desktop `26.917.6896.0` re-signs the `0.7.1` helper without changing its code. The new profile is selected by the complete `SkyVersion` and hash pair:
+
+- Original SHA-256: `B49B868226C9EB6AB0C1A00903F7B3C7188F5ECC8C59A23488F83DC6DDF1EBC4`.
+- Patched SHA-256: `53B9DC200AFA8A1227A93F43BB5BB52EA69734BCE831339A33531762FF0AD785`.
+- Compared with the existing `D09A2F3F` profile, all ten section headers and every raw section body are byte-identical; only two checksum bytes and 4,226 certificate-overlay bytes differ. All five guarded regions match before applying the existing 132-byte MTA wrapper; the result changes 134 bytes and preserves file size.
+- Windows 10 build 19045 reproduced `SetIsBorderRequired / 0x80004002` through the official `@oai/sky` runtime before repair. After repair, a cold Explorer screenshot returned `1125x719` pixels with matching accessibility text. A later independent call refreshed Explorer with `F5` and captured it successfully.
+- Twenty unchanged Explorer captures succeeded in 31-403 ms and produced one identical image hash. An indexed click selected Task Manager's Performance tab; four spaced captures returned four different `666x593` frames whose CPU charts were visually inspected.
+- The main helper changed from 53 threads / 823 handles to 54 / 831 after the capture batch; its cursor child remained at 1 / 182. This bounded sample does not establish long-duration resource stability.
+- The isolated profile harness passed installation, idempotent installation, rollback, idempotent rollback, output/backup hash checks and rejection of an unknown input hash. Run it with `-SkyVersion 0.7.1-B49B8682`.

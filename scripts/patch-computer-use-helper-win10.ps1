@@ -1231,6 +1231,45 @@ $PatchProfiles = @(
         PatchedHex = '7873124001000000'
       }
     )
+  },
+  [ordered]@{
+    Name = '@oai/sky 0.7.1 helper B49B8682 / Windows 10 screenshot backend'
+    ValidatedDesktopVersion = '26.917.6896.0'
+    SkyVersion = '0.7.1'
+    OriginalSha256 = 'B49B868226C9EB6AB0C1A00903F7B3C7188F5ECC8C59A23488F83DC6DDF1EBC4'
+    PatchedSha256 = '53B9DC200AFA8A1227A93F43BB5BB52EA69734BCE831339A33531762FF0AD785'
+    Regions = @(
+      [ordered]@{
+        Name = 'optional-border-interface'
+        Offset = 0x3d82d
+        OriginalHex = '4889c64189d6eb4c'
+        PatchedHex = 'e96f000000909090'
+      },
+      [ordered]@{
+        Name = 'frame-arrived-busy-return'
+        Offset = 0x41451
+        OriginalHex = '0f855b310000'
+        PatchedHex = '0f853d310000'
+      },
+      [ordered]@{
+        Name = 'frame-arrived-once-flag'
+        Offset = 0x41462
+        OriginalHex = '740d'
+        PatchedHex = 'eb0d'
+      },
+      [ordered]@{
+        Name = 'mta-worker-wrapper'
+        Offset = 0x126778
+        OriginalHex = (('00' * 132) -join '')
+        PatchedHex = '536a006a004883ec20515b488b5108f00fba6a10087227488b01ff500831c931d24c8d05350000004989d9ff156ffc04004885c074104891ff1522fc040031c04883c4305bc3488b4308c64011005359488b01ff5010b805400080ebe3534883ec30515b6a0159ff154bfb04005359e830acf1ffff1546fb04005359488b01ff5010ebba'
+      },
+      [ordered]@{
+        Name = 'frame-arrived-vtable'
+        Offset = 0x12c4c8
+        OriginalHex = '1c20044001000000'
+        PatchedHex = '7873124001000000'
+      }
+    )
   }
 )
 
