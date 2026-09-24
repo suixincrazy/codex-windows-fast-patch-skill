@@ -165,9 +165,11 @@ Symptoms:
 
 Checks:
 
-- Do not classify the task as unprivileged from the root cell's `nodeRepl` properties alone. The current Node REPL injects the privileged bridge only into a browser-client module whose SHA-256 matches `NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S`.
+- Do not classify the task as unprivileged from the root cell's `nodeRepl` properties alone. Legacy Node REPL builds inject the privileged bridge only into a browser-client module whose SHA-256 matches `NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S`; `26.814`-style Desktop builds instead deliver the packaged client path through the official Chrome native host.
 - Compare the installed package's `plugins\chrome\scripts\browser-client.mjs` SHA-256 with the active stable marketplace and versioned cache copies. Any byte rewrite changes the hash and makes the browser client run in the ordinary untrusted module context.
-- Confirm the packaged browser-client SHA-256 appears in the current installed `app.asar` trusted browser-client list. In Codex 26.803.10989.0, the packaged hash was `8676FACA...C3B8FC`; a prior local rewrite that replaced `import{env as ...}from"node:process"` with `processShim.env` produced `0E1F364D...6AFF7A0` and caused this exact failure.
+- On a legacy build, confirm the packaged browser-client SHA-256 appears in the current installed `app.asar` trusted browser-client list. In Codex 26.803.10989.0, the packaged hash was `8676FACA...C3B8FC`; a prior local rewrite that replaced `import{env as ...}from"node:process"` with `processShim.env` produced `0E1F364D...6AFF7A0` and caused this exact failure.
+- On a `26.814`-style build with no ASAR hash, require all native-host contract markers (`browserClientPath`, `browserServicePath`, `codex-host-chunked-message-v1`, and the native-host missing-path diagnostic). Then verify that `extension-host-config.json` points to the stable current-version packaged client and that both schema-2 state files bind `browserClientPath` plus `browserServicePath` to that same stable cache. A partial marker set or client-only v2 entry is not enough.
+- If the failure names `Trusted RPC dependency must resolve within a configured trusted code path` and the named C-drive cache is a junction, resolve the junction target before comparing roots. Node validates the physical D-drive target, while an unpatched `26.814` Desktop regenerates `NODE_REPL_TRUSTED_CODE_PATHS` from only `CODEX_HOME` and runtime `node_modules`, overwriting a one-time config edit on restart.
 - Run the current Chrome plugin's read-only diagnostics with the matching current CUA Node runtime: `scripts\chrome-is-running.js --browser chrome --check`, `scripts\installed-browsers.js --json`, `scripts\check-extension-installed.js --browser chrome --json`, and `scripts\check-native-host-manifest.js --browser chrome --json`.
 - If the side panel previously reported a missing `nodePath`, separately verify the current `extension-host-config.json` contains existing `codexCliPath`, `nodePath`, and `nodeReplPath` values, and rerun `install-computer-use-local.ps1 -StrictVerifyOnly`.
 - Keep this error distinct from `Chrome browser is unavailable`, a missing or disabled extension, a bad native-host registry path, missing origins, and the side-panel `nodePath` manifest error. A missing privileged task capability occurs before those transports are used.
@@ -175,7 +177,8 @@ Checks:
 Action:
 
 - Do not patch `browser-client.mjs`, fabricate `nodeRepl.config`, or add the modified hash to `app.asar`. Preserve the vendor trust contract instead.
-- Run `install-computer-use-local.ps1 -VerifyOnly`. The repair restores the exact packaged browser-client bytes into the stable marketplace and versioned cache; `-StrictVerifyOnly` requires those hashes to match and accepts only the legacy installed-`app.asar` hash list, the current packaged `NODE_REPL_TRUSTED_SERVICES` plus `browserServicePath` service contract, or the complete native-host path contract. For an external physical cache root, it also requires the resolved marketplace/cache roots in `NODE_REPL_TRUSTED_CODE_PATHS` and the installed-ASAR marker `CODEX_NODE_REPL_TRUSTED_PATHS_V1`.
+- Run `install-computer-use-local.ps1 -VerifyOnly`. The repair restores the exact packaged browser-client bytes into the stable marketplace and versioned cache; `-StrictVerifyOnly` requires those hashes to match and validates the legacy ASAR hash contract, the packaged `NODE_REPL_TRUSTED_SERVICES` plus `browserServicePath` service contract, or the complete `26.814` native-host path contract.
+- For an external physical cache root, require the installer to set the resolved marketplace/cache roots in the user-level `NODE_REPL_TRUSTED_CODE_PATHS`, then run the full MSIX patcher and require `CODEX_NODE_REPL_TRUSTED_PATHS_V1` in the installed ASAR. After restart, the Desktop-generated config must contain the original roots plus the physical external roots; only then retry browser setup.
 - Reset the current Node REPL kernel after repair, import the active cached browser client, require `setupBrowserRuntime()` to succeed, and confirm `agent.browsers.get("chrome")` returns the real Chrome extension backend.
 - Finish with a real controlled page smoke test: open `https://example.com/`, verify the final URL, title `Example Domain`, exactly one `h1`, and heading text `Example Domain`, then close the temporary tab.
 - If the official diagnostics fail, repair the concrete extension/native-host problem instead and rerun the same diagnostics before attempting browser-client setup again.
@@ -532,7 +535,9 @@ It starts the plugin's own cua_repl server over stdio with `CUA_REPL_ENABLED_SUR
 Run `test-cua-surface-lock-patterns.ps1` and `python scripts/test-probe-cua-surface.py` for offline regression coverage. Descriptor-only plugin layouts without the required launcher/resources are unsupported and must remain untouched; do not treat that rejection as permission to install optional plugins or repack Desktop.
 - This repair is scoped to the builds it was verified on and to the anchors it records; re-run `-VerifyOnly` after a Desktop update rather than assuming it still applies. The re-application case below covers what to do with each possible report.
 
-## Windows Native App Bindings Are macOS-Only, So The Injected Description Misleads The Model
+## Legacy Windows Native App Bindings Were macOS-Only
+
+Version boundary: this case records the older `@oai/cua` runtime that threw `Native app bindings are unavailable for windows.` on `cua.getApp` and `cua.listApps`. The `@oai/cua 0.2.5` bundled with Desktop `26.917.9434.0` has a Windows branch in `tinysky_alt/create_tinysky_alt.js`. Its documentation and source support `cua.listWindows()`, `cua.listApps()`, and `cua.getApp({ windowId: <real window ID> })`. The string form of `getApp` remains the macOS form. Check the installed runtime before applying this legacy description repair; the current descriptor-only plugin has no `scripts/launch.mjs` target for it. Source inspection establishes API shape, while a fresh Desktop window capture after restoring the ASAR surface gate is still required for runtime acceptance.
 
 Symptoms:
 
@@ -608,6 +613,8 @@ When `-VerifyOnly` reports `unsupported` for a profile, the shipped file changed
 The cache-level repair is preferred over patching Desktop's bundle for the reasons given in the surface lock case; it is the version-agnostic path, and it is the one that a re-run of `-VerifyOnly` keeps honest.
 
 ## Third-Party Config Rewriter Removes Computer Use Features And Plugin Sections
+
+Version boundary: the feature-key loss below records the 2026-09-06 case. On CLI `0.155.0-alpha.16.4`, `codex features list` reports `computer_use` as `stable true`, `js_repl` as `removed false`, and `non_prefixed_mcp_tool_names` as `under development false`. A fresh Desktop `26.917.9434.0` session completed Windows window binding, screenshot, and keyboard input with no explicit `computer_use` key and `js_repl = false`. Restore a missing `unified-computer-use` plugin table when `cua_repl` disappears, but do not restore historical feature keys solely because a config rewriter omitted them.
 
 Symptoms:
 
@@ -797,6 +804,22 @@ Action:
 - Run `scripts\test-asar-integrity.ps1 -TemporaryRoot <dir>` after touching any of this. It covers launcher discovery by content, the header-hash algorithm, tamper detection, repair, idempotence, multi-archive tables, read-only launchers, and the loud-failure path. Add `-CheckInstalledPackage` to also assert the installed package is self-consistent.
 - Accept `Desktop actually starts` as the only acceptance criterion for a repack. Patch-marker counts, `service_tier=priority` wire captures, and `install-computer-use-local.ps1 -StrictVerifyOnly` all pass on a package that dies at startup.
 
+## Strict Cache Verification Fails After Unified CUA Removes the Legacy Skill
+
+On Desktop `26.915.4065.0`, a real unified CUA session can enumerate native windows, capture screenshots, and read Chrome and in-app browser tabs while `install-computer-use-local.ps1 -StrictVerifyOnly` fails with `missing:skills\computer-use\SKILL.md`. Desktop's CUA skill reconciliation removes the legacy skill directories when the corresponding `CUA_REPL_ENABLED_SURFACES` entry is enabled. Reinstalling the cache restores a file Desktop will remove again.
+
+The verifier accepts only the complete absence of the legacy `skills\computer-use` directory when the CLI reports exactly one installed, enabled unified Computer Use plugin, its versioned descriptor matches, and its generated MCP manifest enables `js` and the `computer` surface with the current runtime launcher and trusted sky service. A partial skill directory, modified file, missing documentation outside that directory, disabled plugin, stale runtime path, or missing launcher still fails. The native runtime import and browser trust checks still run. Verification never recreates the retired directory.
+
+Run `scripts/test-managed-computer-use-skill.ps1 -TemporaryRoot <temporary-root>` and strict verification after a Desktop session has reconciled the plugins. Validate screenshots and browser tabs through the real Desktop `cua_repl` session separately; a passing cache check alone does not prove those operations.
+
+## Desktop 26.917 Removes The Separate Computer Use Node REPL Flag
+
+The full or surface-only dry run can report `expected exactly one Windows CUA surface-gating target; found 0` even though both Darwin-only gates remain. In Desktop `26.917.6896.0`, `computerUseNodeRepl` is absent from the bundle. Requiring that property during target discovery hides the valid target; adding it back in the Windows expression leaves the computer surface permanently false.
+
+Accept the separate modern layout only when the complete shared readiness predicate is present once. It requires `browserUseTinysky`, a non-WSL runtime, both Node executable paths, `mcpToolExposure`, and an installed, enabled, available unified CUA plugin. The minified capability helper can be renamed: Desktop `26.917.6896.0` uses `n.Gu`, while `26.917.8451.0` and `26.917.9434.0` use `n.Wu`. Match the import/export identifiers structurally in both the finder and embedded patcher without dropping any condition. Preserve that readiness value plus `computerUse` on Windows; preserve the service-app checks on Darwin. Older layouts still require their existing `computerUseNodeRepl` property. Complete previous patches with a missing or stale flag are migrated after verifying the host layout independently of the inserted patch expression. Do not remove readiness checks or rewrite generated `.mcp.json` to compensate.
+
+The surface fixture suite covers 304 modern platform/readiness combinations for the original and renamed helpers, plus the existing 120 legacy combinations, migration, idempotency, corrupt or duplicate readiness anchors, target selection, and unchanged refusal of partial or ambiguous patches. The original contributor validated a full dry-run, signing, installation, real native screenshots, and browser reads on `26.917.6896.0`. The subsequent `n.Wu` compatibility correction was checked against the actual `26.917.9434.0` bundle with syntax and repeat-run validation; this is separate from Desktop installation or screenshot acceptance.
+
 ## CUA Requests Time Out After Proxy Variables Are Removed
 
 On Desktop `26.915.4065.0`, native app enumeration can work and Chrome can connect while tab creation or listing fails with `nodeRepl.fetch request failed`. Compare the actual `cua_repl` child process environment with its app-server parent. Checking `codex-computer-use-swift.exe` alone does not test the process that performs the request.
@@ -812,19 +835,3 @@ The current runtime can ship `instructions/windows/computer.md` with the macOS-s
 ## Signing Certificate Provider Is Missing
 
 A clean Windows PowerShell host can lack the `Cert:` provider even though an existing signing certificate is present. The patcher enumerates `CurrentUser/My` through `X509Store` before invoking certificate creation. It still requires matching subject, a private key, valid expiry, and the code-signing usage. A successful package build must pass signature verification and package inspection before installation.
-
-## Strict Cache Verification Fails After Unified CUA Removes the Legacy Skill
-
-On Desktop `26.915.4065.0`, a real unified CUA session can enumerate native windows, capture screenshots, and read Chrome and in-app browser tabs while `install-computer-use-local.ps1 -StrictVerifyOnly` fails with `missing:skills\computer-use\SKILL.md`. Desktop's CUA skill reconciliation removes the legacy skill directories when the corresponding `CUA_REPL_ENABLED_SURFACES` entry is enabled. Reinstalling the cache restores a file Desktop will remove again.
-
-The verifier accepts only the complete absence of the legacy `skills\computer-use` directory when the CLI reports exactly one installed, enabled unified Computer Use plugin, its versioned descriptor matches, and its generated MCP manifest enables `js` and the `computer` surface with the current runtime launcher and trusted sky service. A partial skill directory, modified file, missing documentation outside that directory, disabled plugin, stale runtime path, or missing launcher still fails. The native runtime import and browser trust checks still run. Verification never recreates the retired directory.
-
-Run `scripts/test-managed-computer-use-skill.ps1 -TemporaryRoot <temporary-root>` and strict verification after a Desktop session has reconciled the plugins. Validate screenshots and browser tabs through the real Desktop `cua_repl` session separately; a passing cache check alone does not prove those operations.
-
-## Desktop 26.917 Removes The Separate Computer Use Node REPL Flag
-
-The full or surface-only dry run can report `expected exactly one Windows CUA surface-gating target; found 0` even though both Darwin-only gates remain. In Desktop `26.917.6896.0`, `computerUseNodeRepl` is absent from the bundle. Requiring that property during target discovery hides the valid target; adding it back in the Windows expression leaves the computer surface permanently false.
-
-Accept the separate modern layout only when the exact shared readiness predicate is present once. It requires `browserUseTinysky`, a non-WSL runtime, both Node executable paths, `mcpToolExposure`, and an installed, enabled, available unified CUA plugin. Preserve that readiness value plus `computerUse` on Windows; preserve the service-app checks on Darwin. Older layouts still require their existing `computerUseNodeRepl` property. Do not remove readiness checks or rewrite generated `.mcp.json` to compensate.
-
-The surface fixture suite covers 304 modern platform/readiness combinations plus the existing 120 legacy combinations, idempotency, corrupt or duplicate readiness anchors, target selection, and unchanged refusal of partial or ambiguous patches. Full dry-run, signing and installation were validated against the new package. After relaunch, the generated surface list was `browser,computer`; the live `cua.listWindows()` and window-bound `cua.getApp({windowId})` path returned Explorer accessibility text and an inspected screenshot. Chrome and the in-app browser both read the expected title and single heading from a controlled page through the official browser runtime.

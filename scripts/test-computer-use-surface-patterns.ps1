@@ -89,6 +89,8 @@ $positiveSource = @'
 function exposePlugin(r,i,a,e){if(!r.installed||i==null||a&&e.platform!==`darwin`)return null;return true;}
 function buildSurface(f,l,t,u){let p;p=f&&l.platform===`darwin`&&t.computerUse&&u.enabled&&u.paths.serviceAppPath!=null;return p;}
 '@
+$legacyReadiness = 'function legacyFlags(t){return t.computerUseNodeRepl}'
+$positiveSource += $legacyReadiness
 $positive = Invoke-PatcherFixture -Name 'current-darwin-gates' -Source $positiveSource -ExpectedExitCode 0
 if ($positive.Output -cne 'patched') {
   throw "positive fixture did not report patched: $($positive.Output)"
@@ -149,7 +151,7 @@ if ($LASTEXITCODE -ne 0) { throw 'CUA platform/feature behavior matrix failed' }
 
 # Desktop 26.917 removed computerUseNodeRepl without opening the platform gates.
 $modernReadiness = 'function ready(t,o,a,n,e,s){return t.browserUseTinysky&&!o&&a.nodePath!=null&&a.nodeReplPath!=null&&n.Gu(e,`mcpToolExposure`)&&s?.plugin.installed===!0&&s.plugin.enabled&&s.plugin.availability===`AVAILABLE`}'
-$modernSource = $positiveSource + $modernReadiness
+$modernSource = $positiveSource.Replace($legacyReadiness, '') + $modernReadiness
 $modern = Invoke-PatcherFixture -Name 'current-without-node-repl-flag' -Source $modernSource -ExpectedExitCode 0
 $modernPatched = [IO.File]::ReadAllText($modern.AssetPath)
 if ($modern.Output -cne 'patched' -or $modernPatched.Contains('computerUseNodeRepl')) {
@@ -181,7 +183,7 @@ for (const nodePath of [null, '/node']) for (const nodeReplPath of [null, '/repl
 for (const exposure of [false, true]) for (const installed of [false, true])
 for (const enabled of [false, true]) for (const availability of ['AVAILABLE','DISABLED']) {
   const ready = !!context.ready({browserUseTinysky}, wsl, {nodePath,nodeReplPath},
-    {Gu:()=>exposure}, 'version', {plugin:{installed,enabled,availability}});
+    new Proxy({}, {get:()=>()=>exposure}), 'version', {plugin:{installed,enabled,availability}});
   const expected = browserUseTinysky && !wsl && nodePath !== null && nodeReplPath !== null &&
     exposure && installed && enabled && availability === 'AVAILABLE';
   assert.equal(ready, expected);
@@ -194,6 +196,41 @@ console.log(`MODERN_CUA_BEHAVIOR_MATRIX_PASSED cases=${cases}`);
 if ($LASTEXITCODE -ne 0) { throw 'modern CUA readiness/platform behavior matrix failed' }
 & $node.Source --check $modern.AssetPath
 if ($LASTEXITCODE -ne 0) { throw 'modern CUA output syntax check failed' }
+
+# The same readiness predicate shipped with renamed import and export symbols.
+$renamedModernSources = @()
+foreach ($helper in @('n.Wu', 'helpers.$q12')) {
+  $namespace = $helper.Split('.')[0]
+  $renamedSource = $modernSource.Replace('n.Gu(', "$helper(").Replace(',n,e,s)', ",$namespace,e,s)")
+  $renamedModernSources += $renamedSource
+  $renamed = Invoke-PatcherFixture -Name ("modern-renamed-" + $namespace + $helper.Split('.')[1]) -Source $renamedSource -ExpectedExitCode 0
+  & $node.Source $modernBehaviorPath $renamed.AssetPath
+  if ($LASTEXITCODE -ne 0) { throw "renamed readiness behavior failed: $helper" }
+  $renamedPatched = [IO.File]::ReadAllText($renamed.AssetPath)
+  $repeat = Invoke-PatcherFixture -Name ("renamed-repeat-" + $namespace) -Source $renamedPatched -ExpectedExitCode 0
+  if ($repeat.Output -cne 'already-patched') { throw 'renamed readiness is not idempotent' }
+}
+
+# Migrate complete earlier patches without mistaking their inserted flag for
+# evidence of a legacy host. Legacy hosts must regain their actual feature gate.
+$legacyGate = 'p=f&&(l.platform===`darwin`&&t.computerUse&&u.enabled&&u.paths.serviceAppPath!=null||l.platform===`win32`&&t.computerUse&&t.computerUseNodeRepl)'
+$modernGate = 'p=f&&t.computerUse&&(l.platform===`darwin`&&u.enabled&&u.paths.serviceAppPath!=null||l.platform===`win32`)'
+$unversionedGate = 'p=f&&(l.platform===`darwin`&&t.computerUse&&u.enabled&&u.paths.serviceAppPath!=null||l.platform===`win32`&&t.computerUse)'
+foreach ($migration in @(
+  @{Name='legacy-unversioned'; Source=$patched.Replace($legacyGate,$unversionedGate); Expected=$patched; Behavior=$behaviorPath},
+  @{Name='modern-unversioned'; Source=$modernPatched.Replace($modernGate,$unversionedGate); Expected=$modernPatched; Behavior=$modernBehaviorPath},
+  @{Name='modern-stale-flag'; Source=$modernPatched.Replace($modernGate,$legacyGate); Expected=$modernPatched; Behavior=$modernBehaviorPath}
+)) {
+  $result = Invoke-PatcherFixture -Name $migration.Name -Source $migration.Source -ExpectedExitCode 0
+  if ($result.Output -cne 'patched' -or [IO.File]::ReadAllText($result.AssetPath) -cne $migration.Expected) {
+    throw "earlier surface patch migration failed: $($migration.Name)"
+  }
+  & $node.Source $migration.Behavior $result.AssetPath
+  if ($LASTEXITCODE -ne 0) { throw "migrated surface behavior failed: $($migration.Name)" }
+  $repeat = Invoke-PatcherFixture -Name ($migration.Name + '-repeat') -Source $migration.Expected -ExpectedExitCode 0
+  if ($repeat.Output -cne 'already-patched') { throw 'surface migration is not idempotent' }
+}
+Write-Output 'CUA_RENAMED_READINESS_AND_MIGRATION_PASSED'
 
 $negativeSource = 'const unrelated={platform:`darwin`,computerUse:true};'
 $negative = Invoke-PatcherFixture -Name 'unknown-layout' -Source $negativeSource -ExpectedExitCode 2
@@ -223,6 +260,12 @@ function Assert-RejectedUnchanged {
 
 Assert-RejectedUnchanged 'modern-corrupt-readiness' ($modernPatched.Replace('t.browserUseTinysky', 't.unknownFlag'))
 Assert-RejectedUnchanged 'modern-duplicate-readiness' ($modernPatched + $modernReadiness)
+Assert-RejectedUnchanged 'original-modern-corrupt-readiness' ($modernSource.Replace('t.browserUseTinysky', 't.unknownFlag'))
+Assert-RejectedUnchanged 'original-modern-duplicate-readiness' ($modernSource + $modernReadiness)
+Assert-RejectedUnchanged 'original-missing-layout' ($positiveSource.Replace($legacyReadiness, ''))
+foreach ($condition in @('t.browserUseTinysky&&', '!o&&', 'a.nodePath!=null&&', 'a.nodeReplPath!=null&&', 'n.Gu(e,`mcpToolExposure`)&&', 's?.plugin.installed===!0&&', 's.plugin.enabled&&')) {
+  Assert-RejectedUnchanged ('missing-readiness-' + [guid]::NewGuid().ToString('N')) ($modernSource.Replace($condition, ''))
+}
 Assert-RejectedUnchanged 'marker-only' '/*CODEX_CUA_WINDOWS_SURFACE_V1*/const unrelated=1;'
 Assert-RejectedUnchanged 'marker-with-original-gates' ($positiveSource + '/*CODEX_CUA_WINDOWS_SURFACE_V1*/')
 Assert-RejectedUnchanged 'marker-with-corrupt-gate' ($patched.Replace('t.computerUseNodeRepl', 't.unknownFlag'))
@@ -261,6 +304,14 @@ $metadata = '/*CUA_REPL_ENABLED_SURFACES cuaReplSurfaces computerUseNodeRepl*/'
 if ((Find-ComputerUseSurfaceTarget $selectionRoot) -cne $candidate) { throw 'content-based selection failed' }
 [IO.File]::WriteAllText($candidate, $modernSource + '/*CUA_REPL_ENABLED_SURFACES cuaReplSurfaces*/')
 if ((Find-ComputerUseSurfaceTarget $selectionRoot) -cne $candidate) { throw 'modern target selection failed' }
+foreach ($source in $renamedModernSources) {
+  [IO.File]::WriteAllText($candidate, $source + '/*CUA_REPL_ENABLED_SURFACES cuaReplSurfaces*/')
+  if ((Find-ComputerUseSurfaceTarget $selectionRoot) -cne $candidate) { throw 'renamed modern target selection failed' }
+}
+[IO.File]::WriteAllText($candidate, $modernSource.Replace('t.browserUseTinysky', 't.unknownFlag') + '/*CUA_REPL_ENABLED_SURFACES cuaReplSurfaces*/')
+Assert-Fails { Find-ComputerUseSurfaceTarget $selectionRoot } '*exactly one*found 0*'
+[IO.File]::WriteAllText($candidate, $modernSource + $modernReadiness + '/*CUA_REPL_ENABLED_SURFACES cuaReplSurfaces*/')
+Assert-Fails { Find-ComputerUseSurfaceTarget $selectionRoot } '*exactly one*found 0*'
 [IO.File]::WriteAllText($candidate, $patched + $metadata)
 if ((Find-ComputerUseSurfaceTarget $selectionRoot) -cne $candidate) { throw 'patched target selection failed' }
 $secondCandidate = Join-Path $buildRoot 'second-main.js'
@@ -278,8 +329,9 @@ $OnlyModelExperience = $false
 $OnlyBundledMarketplaceCopy = $false
 $AddLocalPluginMarketplace = $false
 $VerifyFastModeRequest = $false
+$PatchWindows10ScreenshotHelper = $false
 Assert-ComputerUseSurfaceOptions
-foreach ($option in @('OnlyModelExperience','OnlyBundledMarketplaceCopy','AddLocalPluginMarketplace','VerifyFastModeRequest')) {
+foreach ($option in @('OnlyModelExperience','OnlyBundledMarketplaceCopy','AddLocalPluginMarketplace','VerifyFastModeRequest','PatchWindows10ScreenshotHelper')) {
   Set-Variable -Name $option -Value $true
   Assert-Fails { Assert-ComputerUseSurfaceOptions } '*OnlyComputerUseSurface cannot be combined*'
   Set-Variable -Name $option -Value $false
@@ -301,6 +353,13 @@ if ((Patch-ChromePluginWindowsRegistryParsing $workApp) -cne 'skipped-targeted-c
   throw 'targeted CUA mode modified the unrelated Chrome plugin'
 }
 $OnlyComputerUseSurface = $false
+$PatchWindows10ScreenshotHelper = $true
+foreach ($option in @('OnlyModelExperience','OnlyBundledMarketplaceCopy')) {
+  Set-Variable -Name $option -Value $true
+  Assert-Fails { Assert-ComputerUseSurfaceOptions } '*requires the full repair mode*'
+  Set-Variable -Name $option -Value $false
+}
+$PatchWindows10ScreenshotHelper = $false
 if ((Patch-ChromePluginWindowsRegistryParsing $workApp) -cne 'patched') { throw 'normal Chrome patch path regressed' }
 Write-Output 'CUA_FAIL_CLOSED_SELECTION_AND_SCOPE_PASSED'
 

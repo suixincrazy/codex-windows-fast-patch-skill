@@ -79,20 +79,26 @@ if ($Install) { [IO.File]::WriteAllText($HelperPath, 'patched'); return }
 [pscustomobject]@{ State=$state; WindowsBuild=19045; Sha256='fixture' }
 '@
   [IO.File]::WriteAllText($fixturePatcher, $stub)
-  Assert-Equal (Repair-StagedWindowsComputerUseHelper $fixtureHelper $fixturePatcher $backup) 'not-applicable' 'no staged helper'
+  Assert-Equal (Repair-StagedWindowsComputerUseHelper $fixtureHelper $fixturePatcher $backup -PatchRequested) 'not-applicable' 'no staged helper'
   $cases++
   [IO.File]::WriteAllText($fixtureHelper, 'original-patchable')
-  Assert-Equal (Repair-StagedWindowsComputerUseHelper $fixtureHelper $fixturePatcher $backup) 'patched' 'stage original helper'
+  Assert-Equal (Repair-StagedWindowsComputerUseHelper $fixtureHelper $fixturePatcher $backup) 'skipped-not-requested' 'no implicit helper repair'
+  Assert-Equal ([IO.File]::ReadAllText($fixtureHelper)) 'original-patchable' 'default must preserve a supported helper'
+  $cases++
+  Assert-Equal (Repair-StagedWindowsComputerUseHelper $fixtureHelper $fixturePatcher $backup -PatchRequested) 'patched' 'stage original helper'
   Assert-Equal ([IO.File]::ReadAllText($fixtureHelper)) 'patched' 'stage helper bytes'
   $cases++
-  Assert-Equal (Repair-StagedWindowsComputerUseHelper $fixtureHelper $fixturePatcher $backup) 'already-patched' 'stage repeat helper'
+  Assert-Equal (Repair-StagedWindowsComputerUseHelper $fixtureHelper $fixturePatcher $backup -PatchRequested) 'already-patched' 'stage repeat helper'
   $cases++
   [IO.File]::WriteAllText($fixtureHelper, 'unsupported')
-  Assert-Throws { Repair-StagedWindowsComputerUseHelper $fixtureHelper $fixturePatcher $backup } '*unsupported staged Windows 10 helper*'
+  Assert-Equal (Repair-StagedWindowsComputerUseHelper $fixtureHelper $fixturePatcher $backup) 'skipped-not-requested' 'unknown helper does not block an unrelated repair'
+  Assert-Equal ([IO.File]::ReadAllText($fixtureHelper)) 'unsupported' 'default must preserve an unknown helper'
+  $cases++
+  Assert-Throws { Repair-StagedWindowsComputerUseHelper $fixtureHelper $fixturePatcher $backup -PatchRequested } '*unsupported staged Windows 10 helper*'
   Assert-Equal ([IO.File]::ReadAllText($fixtureHelper)) 'unsupported' 'unknown helper preserved'
   $cases++
   [IO.File]::WriteAllText($fixturePatcher, $stub.Replace('WindowsBuild=19045', 'WindowsBuild=26100'))
-  Assert-Equal (Repair-StagedWindowsComputerUseHelper $fixtureHelper $fixturePatcher $backup) 'not-applicable' 'Windows 11 bypasses Win10 patch'
+  Assert-Equal (Repair-StagedWindowsComputerUseHelper $fixtureHelper $fixturePatcher $backup -PatchRequested) 'not-applicable' 'Windows 11 bypasses Win10 patch'
   Assert-Equal ([IO.File]::ReadAllText($fixtureHelper)) 'unsupported' 'Win11 helper unchanged'
   $cases++
 
@@ -103,8 +109,8 @@ if ($Install) { [IO.File]::WriteAllText($HelperPath, 'patched'); return }
     $metadata = Join-Path $modules '@oai\sky\package.json'
     [IO.File]::WriteAllText($metadata, '{"version":"0.7.1"}')
     $realPatcher = Join-Path $PSScriptRoot 'patch-computer-use-helper-win10.ps1'
-    Assert-Equal (Repair-StagedWindowsComputerUseHelper $realHelper $realPatcher $backup) 'patched' 'real staged helper'
-    Assert-Equal (Repair-StagedWindowsComputerUseHelper $realHelper $realPatcher $backup) 'already-patched' 'real repeat helper'
+    Assert-Equal (Repair-StagedWindowsComputerUseHelper $realHelper $realPatcher $backup -PatchRequested) 'patched' 'real staged helper'
+    Assert-Equal (Repair-StagedWindowsComputerUseHelper $realHelper $realPatcher $backup -PatchRequested) 'already-patched' 'real repeat helper'
     Assert-Equal (Get-FileHash -LiteralPath $realHelper -Algorithm SHA256).Hash 'F406A337F4EA6D794DB2E804DFBE880CE06BF8FBAEC565212411474D02E9545D' 'real helper hash'
     $cases++
   }

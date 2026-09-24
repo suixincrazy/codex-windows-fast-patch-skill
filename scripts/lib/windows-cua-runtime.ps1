@@ -84,9 +84,13 @@ function Repair-StagedWindowsComputerUseHelper {
     [Parameter(Mandatory = $true)]
     [string]$PatcherPath,
     [Parameter(Mandatory = $true)]
-    [string]$BackupRoot
+    [string]$BackupRoot,
+    [switch]$PatchRequested
   )
 
+  if (-not $PatchRequested) {
+    return 'skipped-not-requested'
+  }
   if (-not (Test-Path -LiteralPath $HelperPath -PathType Leaf)) {
     return 'not-applicable'
   }

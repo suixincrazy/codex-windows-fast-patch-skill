@@ -12,10 +12,11 @@ param(
   [switch]$AddLocalPluginMarketplace,
   [string]$LocalPluginMarketplaceSource = (Join-Path $env:USERPROFILE '.codex\.tmp\plugins'),
   [string]$LocalPluginMarketplaceName = 'openai-curated-local',
-  [string[]]$CustomModels = @('gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'),
+  [string[]]$CustomModels = @('gpt-6-astra', 'gpt-6-sol', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'),
   [switch]$VerifyFastModeRequest,
   [switch]$OnlyBundledMarketplaceCopy,
   [switch]$OnlyComputerUseSurface,
+  [switch]$PatchWindows10ScreenshotHelper,
   [Alias('OnlyCustomModels')]
   [switch]$OnlyModelExperience,
   [switch]$DryRun
@@ -44,8 +45,11 @@ function Fail {
 function Assert-ComputerUseSurfaceOptions {
   if ($OnlyComputerUseSurface -and
       ($OnlyBundledMarketplaceCopy -or $OnlyModelExperience -or
-       $AddLocalPluginMarketplace -or $VerifyFastModeRequest)) {
+       $AddLocalPluginMarketplace -or $VerifyFastModeRequest -or $PatchWindows10ScreenshotHelper)) {
     Fail '-OnlyComputerUseSurface cannot be combined with other targeted modes, marketplace registration, or Fast Mode verification'
+  }
+  if ($PatchWindows10ScreenshotHelper -and ($OnlyBundledMarketplaceCopy -or $OnlyModelExperience)) {
+    Fail '-PatchWindows10ScreenshotHelper requires the full repair mode'
   }
 }
 
@@ -793,7 +797,7 @@ process.stdout.write('patched');
   Set-Content -LiteralPath $customModelsPatcherPath -Encoding UTF8 -Value @'
 const fs = require('node:fs');
 const file = process.argv[2];
-const models = [...new Set(process.argv.slice(3).filter(Boolean))];
+const models = [...new Set(process.argv.slice(3).flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean))];
 if (models.length === 0) {
   process.stderr.write('custom-model-list-empty\n');
   process.exit(2);
@@ -801,8 +805,25 @@ if (models.length === 0) {
 
 const marker = 'CODEX_CUSTOM_MODELS_V1';
 const text = fs.readFileSync(file, 'utf8');
-if (text.includes(marker) && models.every((model) => text.includes(model))) {
-  process.stdout.write('already-patched');
+if (text.includes(marker)) {
+  const lists = [...text.matchAll(/\/\*CODEX_CUSTOM_MODELS_V1\*\/(\[[^\]\r\n]*\])\.includes\(([$A-Za-z_][$\w]*)\.model\)\|\|/g)];
+  if (text.split(marker).length !== 2 || lists.length !== 1) {
+    process.stderr.write('custom-model-existing-patch-ambiguous\n');
+    process.exit(2);
+  }
+  let previous;
+  try { previous = JSON.parse(lists[0][1]); } catch { previous = null; }
+  if (!Array.isArray(previous) || !previous.every(value => typeof value === 'string')) {
+    process.stderr.write('custom-model-existing-list-invalid\n');
+    process.exit(2);
+  }
+  if (JSON.stringify(previous) === JSON.stringify(models)) {
+    process.stdout.write('already-patched');
+  } else {
+    const start = lists[0].index + `/*${marker}*/`.length;
+    fs.writeFileSync(file, text.slice(0, start) + JSON.stringify(models) + text.slice(start + lists[0][1].length));
+    process.stdout.write('patched');
+  }
   process.exit(0);
 }
 
@@ -1818,11 +1839,16 @@ const patchedPluginGate = 'if(!r.installed||i==null||a&&(e.platform!==`darwin`&&
 const originalSurfaceGate = 'p=f&&l.platform===`darwin`&&t.computerUse&&u.enabled&&u.paths.serviceAppPath!=null';
 // Desktop 26.917 removes computerUseNodeRepl. Its shared readiness result f
 // already requires the enabled CUA plugin, both Node paths and mcpToolExposure.
-const modernReadiness = 'return t.browserUseTinysky&&!o&&a.nodePath!=null&&a.nodeReplPath!=null&&n.Gu(e,`mcpToolExposure`)&&s?.plugin.installed===!0&&s.plugin.enabled&&s.plugin.availability===`AVAILABLE`';
-const modernLayout = count(modernReadiness) === 1 && !text.includes('computerUseNodeRepl');
-const patchedSurfaceGate = modernLayout
-  ? 'p=f&&t.computerUse&&(l.platform===`darwin`&&u.enabled&&u.paths.serviceAppPath!=null||l.platform===`win32`)'
-  : 'p=f&&(l.platform===`darwin`&&t.computerUse&&u.enabled&&u.paths.serviceAppPath!=null||l.platform===`win32`&&t.computerUse&&t.computerUseNodeRepl)';
+const modernReadinessRe = /return t\.browserUseTinysky&&!o&&a\.nodePath!=null&&a\.nodeReplPath!=null&&[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\(e,`mcpToolExposure`\)&&s\?\.plugin\.installed===!0&&s\.plugin\.enabled&&s\.plugin\.availability===`AVAILABLE`/g;
+const modernPatchedSurfaceGate = 'p=f&&t.computerUse&&(l.platform===`darwin`&&u.enabled&&u.paths.serviceAppPath!=null||l.platform===`win32`)';
+const legacyPatchedSurfaceGate = 'p=f&&(l.platform===`darwin`&&t.computerUse&&u.enabled&&u.paths.serviceAppPath!=null||l.platform===`win32`&&t.computerUse&&t.computerUseNodeRepl)';
+const unversionedSurfaceGate = 'p=f&&(l.platform===`darwin`&&t.computerUse&&u.enabled&&u.paths.serviceAppPath!=null||l.platform===`win32`&&t.computerUse)';
+const knownSurfaceGates = [modernPatchedSurfaceGate, legacyPatchedSurfaceGate, unversionedSurfaceGate];
+// Do not infer the host layout from a dependency inserted by a previous patch.
+const layoutText = knownSurfaceGates.reduce((source, gate) => source.split(gate).join(''), text);
+const legacyLayout = layoutText.includes('computerUseNodeRepl');
+const modernLayout = !legacyLayout && [...layoutText.matchAll(modernReadinessRe)].length === 1;
+const patchedSurfaceGate = modernLayout ? modernPatchedSurfaceGate : legacyPatchedSurfaceGate;
 
 function count(value, source = text) {
   let total = 0;
@@ -1838,11 +1864,19 @@ const pluginCount = count(originalPluginGate);
 const surfaceCount = count(originalSurfaceGate);
 const markerCount = count(marker);
 const patchedPluginCount = count(patchedPluginGate);
-const patchedSurfaceCount = count(patchedSurfaceGate);
+const existingSurfaceGates = knownSurfaceGates.filter(gate => count(gate) > 0);
+const patchedSurfaceCount = knownSurfaceGates.reduce((total, gate) => total + count(gate), 0);
 if (markerCount || patchedPluginCount || patchedSurfaceCount) {
-  if (markerCount === 1 && patchedPluginCount === 1 && patchedSurfaceCount === 1 &&
-      pluginCount === 0 && surfaceCount === 0) {
-    process.stdout.write('already-patched');
+  if (markerCount === 1 && patchedPluginCount === 1 &&
+      patchedSurfaceCount === 1 && pluginCount === 0 && surfaceCount === 0 &&
+      (legacyLayout || modernLayout)) {
+    const previousGate = existingSurfaceGates[0];
+    if (previousGate === patchedSurfaceGate) {
+      process.stdout.write('already-patched');
+    } else {
+      fs.writeFileSync(file, text.replace(previousGate, patchedSurfaceGate));
+      process.stdout.write('patched');
+    }
     process.exit(0);
   }
   process.stderr.write('incomplete or ambiguous CUA surface patch; refusing to modify the asset\n');
@@ -1850,6 +1884,10 @@ if (markerCount || patchedPluginCount || patchedSurfaceCount) {
 }
 if (pluginCount !== 1 || surfaceCount !== 1) {
   process.stderr.write(`current CUA surface anchors not found exactly once: plugin=${pluginCount} surface=${surfaceCount}\n`);
+  process.exit(2);
+}
+if (!legacyLayout && !modernLayout) {
+  process.stderr.write('unsupported or ambiguous CUA readiness predicate; refusing to modify the asset\n');
   process.exit(2);
 }
 
@@ -2384,11 +2422,12 @@ function Find-ComputerUseSurfaceTarget {
   }
   $candidates = @(foreach ($candidate in (Get-ChildItem -LiteralPath $viteBuildDir -Filter '*.js' -File)) {
     $text = [IO.File]::ReadAllText($candidate.FullName)
+    $modernReadinessPattern = 'return t\.browserUseTinysky&&!o&&a\.nodePath!=null&&a\.nodeReplPath!=null&&[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\(e,`mcpToolExposure`\)&&s\?\.plugin\.installed===!0&&s\.plugin\.enabled&&s\.plugin\.availability===`AVAILABLE`'
     if ($text.Contains('CODEX_CUA_WINDOWS_SURFACE_V1') -or
         ($text.Contains('CUA_REPL_ENABLED_SURFACES') -and
          $text.Contains('cuaReplSurfaces') -and
          ($text.Contains('computerUseNodeRepl') -or
-          $text.Contains('return t.browserUseTinysky&&!o&&a.nodePath!=null&&a.nodeReplPath!=null&&n.Gu(e,`mcpToolExposure`)&&s?.plugin.installed===!0&&s.plugin.enabled&&s.plugin.availability===`AVAILABLE`')) -and
+          [regex]::Matches($text, $modernReadinessPattern).Count -eq 1) -and
          $text.Contains('serviceAppPath!=null') -and
          $text.Contains('platform===`darwin`'))) {
       $candidate.FullName
@@ -3412,7 +3451,8 @@ try {
     $helperPatch = Repair-StagedWindowsComputerUseHelper `
       -HelperPath $stagedHelper `
       -PatcherPath (Join-Path $PSScriptRoot 'patch-computer-use-helper-win10.ps1') `
-      -BackupRoot (Join-Path $tempWork 'helper-backup')
+      -BackupRoot (Join-Path $tempWork 'helper-backup') `
+      -PatchRequested:$PatchWindows10ScreenshotHelper
     Write-Log "staged Windows 10 helper patch result: $helperPatch"
   }
 

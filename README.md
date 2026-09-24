@@ -8,7 +8,7 @@
 
 如果你的 Windows Codex Desktop 更新后出现下面这些问题，可以让 agent 使用这个 skill：
 
-- 修复 Fast Mode、gpt-6-astra、gpt-5.6-sol、gpt-5.6-terra、gpt-5.6-luna 模型不显示，蓝紫色 Power 拖动条消失，以及自定义提供商下 Ultra 开关变灰不可点的问题。补丁只放行当前版本目录里已存在、但被标成隐藏的模型条目，本身不会创建条目；目录里没有的模型，重打多少次都不会出现。
+- 修复 Fast Mode、gpt-6-astra、gpt-6-sol、gpt-5.6-sol、gpt-5.6-terra、gpt-5.6-luna 模型不显示，蓝紫色 Power 拖动条消失，以及自定义提供商下 Ultra 开关变灰不可点的问题。补丁只放行当前版本目录里已存在、但被过滤的模型条目，本身不会创建条目；使用自定义模型目录时，应先备份并补齐接口已提供的新模型条目。主工作流与补丁脚本均支持逗号分隔的 `-CustomModels` 参数。
 - 修复 Codex 重启后界面语言又变回英文的问题。
 - 修复插件入口、插件安装按钮、插件市场列表不可用的问题。
 - 修复内置浏览器、浏览器面板、Chrome / browser_use 不可用的问题。
@@ -37,9 +37,10 @@
 - `SKILL.md`：Agent skill 主说明。
 - `agents/openai.yaml`：Agent UI 元数据。
 - `scripts/repatch-codex-windows.ps1`：主工作流参考脚本。
+- `-PatchWindows10ScreenshotHelper`：主工作流和全量 MSIX 补丁脚本的显式选项，仅在 Windows 10 复现 `SetIsBorderRequired / 0x80004002` 后使用，按完整哈希修补暂存 helper。默认全量修复保留 helper 原样，定向模式不接受此选项。
 - `scripts/patch_codex_fast_mode_windows_msix.ps1`：Fast Mode、插件、浏览器、Computer Use 等 MSIX / ASAR 补丁参考实现。
 - `scripts/patch_codex_fast_mode_windows_msix.ps1 -OnlyComputerUseSurface`：针对已支持的 Desktop 主 ASAR 中 Windows CUA surface 的 Darwin-only 门控，要求候选文件唯一、补丁块完整且唯一，保留 Darwin 行为和 Windows 功能开关，跳过无关 Chrome 修改，并执行 `node --check`；未知、残缺或重复布局直接失败。不能与其他 targeted 模式、marketplace 注册或 Fast Mode 验证混用。
-- `scripts/test-computer-use-surface-patterns.ps1`：Windows CUA surface ASAR patcher 的隔离回归测试，覆盖 120 组平台与功能开关组合、幂等、残缺或重复补丁拒绝、候选文件歧义、模式隔离和 ASAR 执行器回退；不代替真实 Desktop 审批及截图验收。
+- `scripts/test-computer-use-surface-patterns.ps1`：Windows CUA surface ASAR patcher 的隔离回归测试，覆盖新旧版本就绪条件、压缩函数改名、旧补丁迁移、幂等、残缺或重复补丁拒绝、候选文件歧义、模式隔离和 ASAR 执行器回退；不代替真实 Desktop 审批及截图验收。
 - `scripts/patch-dynamic-tools-windows-msix.ps1`：用于修复 Desktop `dynamicTools` schema 漂移导致新建对话 / thread start 报 `missing field inputSchema` 的 targeted MSIX / ASAR 脚本。
 - `scripts/patch-dynamic-tools-schema.cjs`：dynamicTools MSIX 脚本使用的 Electron bundle patcher。
 - `scripts/patch-remote-control-windows-msix.ps1`：手机远控 MSIX / ASAR 补丁和 marker 校验参考实现。
@@ -47,7 +48,7 @@
 - `scripts/build-remote-control-native-replacement.ps1`：当 native app-server 因 API-key 主认证拒绝手机远控时，在指定工作目录下构建 patched `app\resources\codex.exe` replacement。默认从安装包副本自动识别原生版本；内置映射包括在 Desktop `26.715.2305.0` 上完成精确 tag 构建、安装和手机端到端实测的 `0.145.0-alpha.18`，在 Desktop `26.707.3748.0` 上完成同类验证的 `0.144.0-alpha.4`，以及仅通过 patch-apply 验证的历史 `0.142.4`。其他版本必须提供严格匹配的 `-CodexSourceRef`、`-AppServerVersion` 和已验证的 `-PatchPathOverride`。
 - `scripts/install-computer-use-local.ps1`：Windows Computer Use 与 Chrome 本地运行时安装和校验参考实现；兼容旧式 `latest + plugin-local node_modules` 和新版“版本缓存 + `%LOCALAPPDATA%` 独立 cua_node runtime”布局，并同步 Chrome 外层 native-host manifest、`extension-host-config.json` 与两份 schema-2 app-server 状态文件。
 - `scripts/patch-computer-use-node-repl-context.ps1`：为精确支持哈希的 `@oai/sky 0.6.2` helper transport 修复跨 `node_repl` 调用的应用审批上下文，提供只读识别、安装、完整哈希校验和回滚。
-- `scripts/patch-computer-use-helper-win10.ps1`：为精确支持哈希的 `@oai/sky 0.4.20`、`0.5.2`、`0.6.6`、`0.6.11`、`0.6.16` 和 `0.6.17` helper 提供只读识别、安装和回滚；`26.707.12708.0`、`26.721.4979.0`、`26.803.10989.0`、`26.810.6296.0`、`26.810.7004.0`、`26.814.5167.0`、`26.814.5517.0`、`26.818.2872.0` 与 `26.818.3698.0` 是各自的端到端验证基线，不是版本门槛。同一个 `0.6.16` 系列在两个 Desktop 版本上是不同的 helper 二进制；两个 `0.6.17` helper 甚至上报完全相同的版本字符串，仅整文件哈希不同，因此 profile 只能按完整哈希选取，绝不能按版本前缀。最新 `0.6.17` 基线包含八帧全唯一静态截图、二十帧全唯一动态截图和预热后资源稳定性验证。
+- `scripts/patch-computer-use-helper-win10.ps1`：为精确支持哈希的 `@oai/sky 0.4.20`、`0.5.2`、`0.6.6`、`0.6.11`、`0.6.16` 和 `0.6.17` helper 提供只读识别、安装和回滚；`26.707.12708.0`、`26.721.4979.0`、`26.803.10989.0`、`26.810.6296.0`、`26.810.7004.0`、`26.814.5167.0`、`26.814.5517.0`、`26.818.2872.0` 与 `26.818.3698.0` 是各自的端到端验证基线，不是版本门槛。`0.6.16` 与 `0.6.17` 的受保护代码布局完全一致，但整文件哈希不同；profile 只能按完整哈希选取，不能只按版本前缀判断。最新 `0.6.17` 基线包含八帧全唯一静态截图、二十帧全唯一动态截图和预热后资源稳定性验证。
 - `scripts/repair-cua-surface-lock.ps1`：修复 Windows 上 `unified-computer-use` 插件缓存的两处偏差——`scripts\launch.mjs` 里被 Desktop 对账写死为 `browser` 的 surface 列表（只改 `.mcp.json` 无效，每次 Desktop 启动都会被回写），以及 `resources\computer-description.md` 里只教 macOS `cua.getApp` 的注入描述（Windows 上该方法恒抛 `Native app bindings are unavailable for windows.`，正确的原生入口是窗口式 `cua.computer.*`）。按 profile 独立报告状态、保留目标文件行尾、逐文件备份，支持 `-VerifyOnly` 门禁、`-Json` 报告与 `-Rollback`。
 - `scripts/test-cua-surface-lock-patterns.ps1`：`repair-cua-surface-lock.ps1` 的隔离回归测试，覆盖完整补丁校验、缺失文件与残缺标记拒绝、行尾保持、幂等、回滚、`WhatIf` 和未知布局拒绝。修复过程不改写 `.mcp.json`，回滚会保留安装之后的用户改动并要求人工处理冲突。
 - `scripts/probe-cua-surface.py`：独立验收探针。用插件自带环境启动 `cua_repl`，把 `CUA_REPL_ENABLED_SURFACES` 强制为 `browser`，检查工具描述、必需的 API 成员，以及非空的 Windows 窗口和应用列表。此探针不替代真实 Desktop 重启或截图验收。
@@ -165,7 +166,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\ski
 ## 预期验证
 
 - 补丁日志中的 `selected Codex app` 与 `source package` 指向预期的最高版本；如果 Store 新包只对 SYSTEM 为 Staged，也不能静默回退到旧用户包。
-- 补丁日志包含 `fast-mode UI patch result`、`locale i18n patch result` 和 `browser-use gate patch result`，结果为 `patched` 或 `already-patched`。
+- 补丁日志包含 `fast-mode UI patch result`、`locale i18n patch result`、`browser-use gate patch result` 和 `Node REPL trusted-paths patch result`，结果为 `patched` 或 `already-patched`。
 - Fast Mode 本地线缆验证能在 `/v1/responses` 的 HTTP 请求体或 WebSocket 帧里捕获 `service_tier=priority`；如果 `codex exec` 未发出请求，验证器会回退到 app-server，并额外确认 `thread/start serviceTier=priority`。
 - 如果本次修复包含浏览器和 Computer Use，`codex plugin list` 应显示 `browser`、`chrome`、`computer-use` 为 `installed, enabled`；`sites`、`latex`、`deep-research`、`visualize` 等无关可选插件必须保留用户原有状态。给主 wrapper 加 `-VerifyAllBundledPluginsAvailable` 会在正常修复/DryRun 流程中附加 availability 断言，校验稳定镜像与当前安装包的 descriptor 名称和版本一致，并校验 CLI JSON 报告相同版本；断言本身不联网下载、不执行 `plugin add`、不启用可选插件，但 wrapper 的其它修复步骤仍可能写入状态。完全只读时直接运行 `install-computer-use-local.ps1 -StrictVerifyOnly -VerifyAllBundledPluginsAvailable`。该断言以安装包自带的 `app\resources\plugins\openai-bundled` 清单为基准，所以当账号侧 feature flag 让 Desktop 物化的 descriptor 少于安装包时，它会以 `stable bundled marketplace descriptor set does not match the installed package` 失败。第三方 provider 或 API key 账号出现这种情况属于预期，不是修复目标：例如 Desktop `26.825.6671.0` 安装包带 10 个 descriptor，而账号只能物化 8 个，缺的 `unified-computer-use`（依赖 `browserUseTinysky`，且在 Windows 上恒返回空并标记 `hidden`）与 `user-writing`（依赖 `userWriting` 与 ChatGPT 账号用户设置）都无法在这类账号下取得。此时改用「按本次修复实际需要的插件名」验收，并在报告里写明缺口与原因。
 - 如果修复 `node_repl exec context not found`，`StrictVerifyOnly` 应报告已验证的 helper-transport 补丁哈希；随后必须在启动 helper 的调用之后，用至少两个新的独立调用激活并截图同一个稳定窗口，并检查图片内容确实属于目标窗口。只有 `list_windows`、截图计数或 PNG 文件不算验收。
@@ -173,7 +174,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\ski
 - Desktop 日志应保留当前安装包的 bundled descriptor 名称，并且不应通过 `not_in_bundled_marketplace_plugin_names` 删除用户原本已安装的插件；descriptor 存在不等于插件已安装。
 - 如果本次修复包含浏览器能力，Desktop 日志里 `browser_use_availability_resolved` 显示 `available=true` 和 `reason=local-patched`。
 - 如果修复 Win10 截图 helper，patcher 应报告已验证 patched SHA-256；Explorer 首帧/连续帧、任务管理器动态帧、文字读取、窗口枚举和预热后资源稳定性都应通过。
-- 如果需要 Chrome 控制，`codex plugin list` 显示 `chrome@openai-bundled` 为 `installed, enabled`；native messaging host manifest 的路径和注册表值指向当前稳定缓存；`allowed_origins` 与缓存 `scripts\extension-ids.json` 顶层 ID 精确一致；`extension-host-config.json` 包含与当前安装包匹配的本地 `codex.exe` 以及同一当前运行时的 `node.exe` / `node_repl.exe`；`%LOCALAPPDATA%\OpenAI\Codex\chrome-native-hosts-v2.json` 与 `%USERPROFILE%\.codex\chrome-native-hosts-v2.json` 都包含当前版本、官方哈希身份和全部现存路径。稳定 marketplace 与版本化缓存中的 `browser-client.mjs` 必须和安装包 SHA-256 完全一致；信任校验既支持旧版 `app.asar` 哈希列表、`NODE_REPL_TRUSTED_SERVICES` 与 `browserServicePath` 服务契约，也支持完整的 `26.814` native-host 路径契约。如果稳定缓存通过 junction 位于 `CODEX_HOME` 之外，用户级和 Desktop 生成后的 `NODE_REPL_TRUSTED_CODE_PATHS` 都必须包含解析后的物理 marketplace/cache 根，installed ASAR 必须包含 `CODEX_NODE_REPL_TRUSTED_PATHS_V1`。`setupBrowserRuntime()` 成功且 `agent.browsers.get("chrome")` 返回真实 Chrome 扩展后端。随后真实 smoke test 应能读到受控标签页标题，例如 `Example Domain`。Chrome 未运行时，无需再次征得用户授权，直接自动启动后验证 `https://example.com/`、`Example Domain` 标题和唯一且文本匹配的 `h1`。
+- 如果需要 Chrome 控制，`codex plugin list` 显示 `chrome@openai-bundled` 为 `installed, enabled`；native messaging host manifest 的路径和注册表值指向当前稳定缓存；`allowed_origins` 与缓存 `scripts\extension-ids.json` 顶层 ID 精确一致；`extension-host-config.json` 包含与当前安装包匹配的本地 `codex.exe` 以及同一当前运行时的 `node.exe` / `node_repl.exe`；`%LOCALAPPDATA%\OpenAI\Codex\chrome-native-hosts-v2.json` 与 `%USERPROFILE%\.codex\chrome-native-hosts-v2.json` 都包含当前版本、官方哈希身份和全部现存路径。稳定 marketplace 与版本化缓存中的 `browser-client.mjs` 必须和安装包 SHA-256 完全一致。旧版还要求该哈希出现在当前 `app.asar` 的信任列表中；带 `NODE_REPL_TRUSTED_SERVICES` 的版本也可改用 `browserServicePath` 服务契约；`26.814` 形态则要求完整的 native-host 路径契约，并要求两份 v2 state 中的 `browserClientPath` 与 `browserServicePath` 同时指向同一个当前版本稳定缓存。如果该缓存通过 junction 放在 `CODEX_HOME` 之外，用户级和 Desktop 生成后的 `NODE_REPL_TRUSTED_CODE_PATHS` 都必须包含其解析后的物理 marketplace/cache 根，installed ASAR 必须包含 `CODEX_NODE_REPL_TRUSTED_PATHS_V1`；只在 `config.toml` 写一次 D 盘路径不够，因为未修补的 Desktop 会在重启时覆盖它。`setupBrowserRuntime()` 成功且 `agent.browsers.get("chrome")` 返回真实 Chrome 扩展后端。随后真实 smoke test 应能读到受控标签页标题，例如 `Example Domain`。Chrome 未运行时，无需再次征得用户授权，直接自动启动后验证 `https://example.com/`、`Example Domain` 标题和唯一且文本匹配的 `h1`。
 - 如果修复手机远控，连接页应显示手机/移动设备设置路径，二维码应出现，手机扫码不再提示 Codex 版本过期；按 WindowsApps native PID/路径关联的日志应出现 `remote_control_websocket_proxy_connected` 和 `Connected` 且没有重复 `os error 10060`，手机发送消息能到达 Desktop。部分 native 版本会静默处理 Ping/Pong，因此不得把帧日志文字当作唯一成功条件。
 - 如果修复会话消失，`sync-codex-provider-history.ps1` 应显示 App/legacy SQLite 和 readable rollout 的 provider 已对齐到当前 `model_provider`，`config.toml sha256 unchanged`，官方侧边栏能看到历史会话，并且不会新增空项目分组。如果修的是“恢复后无法继续”，`missing rollout cwd dirs after` 应为 0 或只剩已审查跳过的路径，受影响会话重启后能发送新消息。
 - 如果清理孤立插件配置，日志应先报告只读分类或明确拒绝原因；`-Install` 成功时必须报告备份 SHA-256、TOML 校验通过、无 UTF-8 BOM、精确插件/hook 表已不存在，且相似 ID 与无关表仍保留。

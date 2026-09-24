@@ -25,7 +25,7 @@ Use this profile only when all of the following are true:
 | `0.6.17-202608171537-pr-1300023-7efba775c041` | `26.818.2872.0` | `29D5E113A5D24A1DD3F3CCA4245CE5AE82A56E88AF5AFCD8E0AE4CC2E5C94992` | `DC83663FBF8DEF6749296B84EAE66054D2C07530CC42A87CA4503ECF86AD3767` |
 | `0.6.17-202608171537-pr-1300023-7efba775c041` | `26.818.3698.0` | `DB8F4486D527C91B80266FAF77FDC38266B1D3960EFBBA35D0A6AAB4CAAF6AEE` | `6495168DC16A35CDC33230E6512D64E660B56D13E99FE239426D228B9F86E157` |
 
-One `@oai/sky` version can ship more than one helper binary across Desktop builds, so the table is keyed by the complete hash pair, not by the version string alone. Both `0.6.11` rows use the same five guarded regions at the same offsets; `0.6.16` keeps the same callback paths but has its own wrapper padding location and exact hash pair. Both `0.6.16` rows and both `0.6.17` rows also use the same five guarded regions at the same offsets, and their patched bytes are identical: Desktop `26.814.5517.0`, `26.818.2872.0`, and `26.818.3698.0` change the embedded version string or the code-signing material, not the guarded code, so only the whole-file hash pair and the reported version string differ. Four consecutive Desktop builds now share one guarded-code layout while each ships a distinct whole-file hash, and two of them report an identical version string.
+One `@oai/sky` version can ship more than one helper binary across Desktop builds, so the table is keyed by the complete hash pair, not by the version string alone. Both `0.6.11` rows use the same five guarded regions at the same offsets; `0.6.16` and `0.6.17` keep the same callback paths and guarded bytes, but each build family has distinct whole-file hashes. Identical reported versions can still cover different binaries, so a version comparison cannot tell them apart.
 
 The `0.4.20` original helper was also observed in Desktop `26.715.2305.0` by package inspection. That observation did not create a separate end-to-end profile. The patcher is `scripts/patch-computer-use-helper-win10.ps1`.
 
@@ -80,7 +80,7 @@ No executable is stored in this repository. The patcher reconstructs the validat
 | `0.6.16` | `0x001486AF-0x0014875D` | `0x1401492AF-0x14014935D` | Wrapper, thread creation/failure cleanup, and MTA worker. |
 | `0.6.16` | `0x0014B128` | `0x14014C928` | Redirect the `FrameArrived` delegate vtable entry to the wrapper. |
 
-The `0.6.16` rows apply unchanged to the `0.6.16-202608171739-pr-1311460-c66628846294` helper shipped with Desktop `26.814.5517.0` and to both `0.6.17-202608171537-pr-1300023-7efba775c041` helpers, shipped with Desktop `26.818.2872.0` and `26.818.3698.0`: same offsets, same original bytes, same patched bytes.
+The `0.6.16` rows apply unchanged to the `0.6.16-202608171739-pr-1311460-c66628846294` helper shipped with Desktop `26.814.5517.0`, and to both `0.6.17-202608171537-pr-1300023-7efba775c041` helpers shipped with Desktop `26.818.2872.0` and `26.818.3698.0`: same offsets, same original bytes, same patched bytes.
 
 ## Apply and verify
 
@@ -228,11 +228,13 @@ Because the Processes tab does not repaint while backgrounded, a dynamic-capture
 
 ### `@oai/sky 0.6.16` / Desktop 26.814.5167.0 validation
 
-Desktop `26.814.5167.0` ships `@oai/sky 0.6.16` with a new `1,895,728`-byte helper. The original helper SHA-256 is `E40BE6145157885F0E155A4247DF3B64BD5D3455A04E276503B0E2821B3EA39E`; the previous profile was not reused by version number alone. Static analysis revalidated the optional-interface path, busy/one-shot guards, import slots, original `FrameArrived` callback, and a separate executable padding region at file offset `0x1486AF` (virtual address `0x1401492AF`). The vtable entry at `0x14B128` was redirected from `43db044001000000` to `af92144001000000`.
+Desktop `26.814.5167.0` ships `@oai/sky 0.6.16` with a new `1,895,728`-byte helper. The original helper SHA-256 is `E40BE6145157885F0E155A4247DF3B64BD5D3455A04E276503B0E2821B3EA39E`; the previous profile was not reused by version number alone. Static analysis revalidated the optional-interface path, busy/one-shot guards, import slots, original `FrameArrived` callback, and a separate executable padding region at file offset `0x1486AF` (virtual address `0x1401492AF`). The vtable entry at `0x14B128` redirects from `43db044001000000` to `af92144001000000`.
 
-- The guarded in-memory rewrite produced complete candidate SHA-256 `F35CA6D89959EDEFB4DF46A5ECC6202091AB3C63E885E6CD6CF9824D92B66EB7`, and the live helper reproduced it exactly.
-- The wrapper retained the existing `CreateThread`, `CloseHandle`, `RoInitialize`, and `RoUninitialize` import slots and the original callback at `0x14004DB43`. No executable under `WindowsApps` was modified.
-- The isolated regression passed `original -> patched -> idempotent install -> rollback -> idempotent rollback`, complete input/output hash checks, and unknown-hash rejection. The original backup is stored under `.codex\backups\computer-use-helper\26.814.5167.0-sky-0.6.16-E40BE614`.
+- The guarded in-memory rewrite produces complete candidate SHA-256 `F35CA6D89959EDEFB4DF46A5ECC6202091AB3C63E885E6CD6CF9824D92B66EB7`. Integration testing independently reproduced that hash from a second exact-hash fixture without modifying the live helper.
+- The wrapper retains the existing `CreateThread`, `CloseHandle`, `RoInitialize`, and `RoUninitialize` import slots and the original callback at `0x14004DB43`. No executable under `WindowsApps` is modified.
+- The contributor's Windows 10 regression passed `original -> patched -> idempotent install -> rollback -> idempotent rollback`, complete input/output hash checks, and unknown-hash rejection. Integration testing on Windows build `26200` reproduced the candidate hash from a D-drive fixture, confirmed that the platform guard rejected `-Install` without changing the fixture, and repeated unknown-hash rejection. The contributed live run stored its original backup under `.codex\backups\computer-use-helper\26.814.5167.0-sky-0.6.16-E40BE614`.
+
+The contributor's Windows 10 validation reported:
 
 | Test | Result |
 | --- | --- |
@@ -326,7 +328,7 @@ The later Store upgrade to Desktop `26.715.3651.0` (the same `codex-cli 0.145.0-
 - Fast wire verification again reached `/v1/responses` with `service_tier=priority`; strict Computer Use verification returned a `1920x1080` screenshot while the helper retained the documented patched SHA-256.
 - Chrome extension, native-host manifest, launch dry run, and the Windows sandbox smoke test passed.
 
-These are upgrade-repair regression checks for the `0.4.20` profile. The deeper end-to-end helper validations were performed on Desktop `26.707.12708.0` for `0.4.20`, Desktop `26.721.4979.0` for `0.5.2`, Desktop `26.803.10989.0` for `0.6.6`, and Desktop `26.810.6296.0` for `0.6.11`; each complete helper hash pair, not a Desktop version by itself, remains the compatibility boundary.
+These are upgrade-repair regression checks for the `0.4.20` profile. The deeper end-to-end helper validations were performed on Desktop `26.707.12708.0` for `0.4.20`, Desktop `26.721.4979.0` for `0.5.2`, Desktop `26.803.10989.0` for `0.6.6`, Desktop `26.810.6296.0` and `26.810.7004.0` for the two `0.6.11` hashes, and Desktop `26.814.5167.0` for `0.6.16`; each complete helper hash pair, not a Desktop version by itself, remains the compatibility boundary.
 
 Repeated static captures can appear as alternating complete/black composites in the conversation renderer. In the validated run, every underlying static image data URL had the same length and SHA-256, so that presentation artifact was not a corrupted helper frame.
 
@@ -370,18 +372,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$SkillRoot\scripts\test-com
 
 The regression validates the exact original and candidate hashes, unknown-hash rejection, and the platform guard using a temporary helper copy. On Windows 11 it must reject installation and leave that copy unchanged; it does not perform or claim Windows 10 capture acceptance. It also asserts that the pending end-to-end validation field remains empty.
 
-### `@oai/sky 0.7.1` helper `D09A2F3F` / Desktop 26.915.4065.0
-
-Windows 10 build `19045` reproduces `SetIsBorderRequired failed` and `0x80004002` with the complete original SHA-256 `D09A2F3F4C144BE9C180509F5CD67D60F4B0B6FBB62E0F5A1EE131F4B653C512`. The guarded patch produces `F406A337F4EA6D794DB2E804DFBE880CE06BF8FBAEC565212411474D02E9545D`.
-
-This is a new code layout. The five raw offsets are `0x3D82D`, `0x41451`, `0x41462`, `0x126778`, and `0x12C4C8`. The 132-byte MTA wrapper fits the available executable padding without overwriting the PE runtime trailer. The callback vtable points at the new wrapper. Earlier 169-byte wrappers must not be copied to this build.
-
-Acceptance on Desktop `26.915.4065.0` used the official sky runtime and the exact helper above. Twenty Explorer captures succeeded, with 517 ms for the cold frame and 32-52 ms for subsequent frames. The resource samples stayed stable after initialization. A separate six-frame Task Manager Performance batch returned six distinct complete images; the live runtime then returned four further Performance frames over six seconds, with visible CPU graph changes. Each of those four decoded images was inspected together with the captured accessibility state. No `SetIsBorderRequired` or `0x80004002` error occurred. The helper embedded in the signed MSIX and the extracted runtime have the same complete patched hash.
-
-The regression exercises original detection, candidate hash, install, idempotence, rollback, and unknown-hash rejection using an isolated copy. This native helper acceptance does not assert that a browser tab or the separate Swift control service was exercised.
-
-The full Windows 10 MSIX flow now checks and patches the staged helper before packaging. Unknown hashes stop the build, and targeted Model Experience, marketplace, and CUA-surface repairs do not add this separate binary operation.
-
 ### `@oai/sky 0.7.1` / Desktop 26.917 validation
 
 Desktop `26.917.6896.0` re-signs the `0.7.1` helper without changing its code. The new profile is selected by the complete `SkyVersion` and hash pair:
@@ -393,3 +383,15 @@ Desktop `26.917.6896.0` re-signs the `0.7.1` helper without changing its code. T
 - Twenty unchanged Explorer captures succeeded in 31-403 ms and produced one identical image hash. An indexed click selected Task Manager's Performance tab; four spaced captures returned four different `666x593` frames whose CPU charts were visually inspected.
 - The main helper changed from 53 threads / 823 handles to 54 / 831 after the capture batch; its cursor child remained at 1 / 182. This bounded sample does not establish long-duration resource stability.
 - The isolated profile harness passed installation, idempotent installation, rollback, idempotent rollback, output/backup hash checks and rejection of an unknown input hash. Run it with `-SkyVersion 0.7.1-B49B8682`.
+
+### `@oai/sky 0.7.1` helper `D09A2F3F` / Desktop 26.915.4065.0
+
+Windows 10 build `19045` reproduces `SetIsBorderRequired failed` and `0x80004002` with the complete original SHA-256 `D09A2F3F4C144BE9C180509F5CD67D60F4B0B6FBB62E0F5A1EE131F4B653C512`. The guarded patch produces `F406A337F4EA6D794DB2E804DFBE880CE06BF8FBAEC565212411474D02E9545D`.
+
+This is a new code layout. The five raw offsets are `0x3D82D`, `0x41451`, `0x41462`, `0x126778`, and `0x12C4C8`. The 132-byte MTA wrapper fits the available executable padding without overwriting the PE runtime trailer. The callback vtable points at the new wrapper. Earlier 169-byte wrappers must not be copied to this build.
+
+Acceptance on Desktop `26.915.4065.0` used the official sky runtime and the exact helper above. Twenty Explorer captures succeeded, with 517 ms for the cold frame and 32-52 ms for subsequent frames. The resource samples stayed stable after initialization. A separate six-frame Task Manager Performance batch returned six distinct complete images; the live runtime then returned four further Performance frames over six seconds, with visible CPU graph changes. Each of those four decoded images was inspected together with the captured accessibility state. No `SetIsBorderRequired` or `0x80004002` error occurred. The helper embedded in the signed MSIX and the extracted runtime have the same complete patched hash.
+
+The regression exercises original detection, candidate hash, install, idempotence, rollback, and unknown-hash rejection using an isolated copy. This native helper acceptance does not assert that a browser tab or the separate Swift control service was exercised.
+
+After reproducing the Windows 10 `SetIsBorderRequired / 0x80004002` failure, pass `-PatchWindows10ScreenshotHelper` to the full MSIX patcher or wrapper to patch the staged helper before packaging. Without that explicit switch, the staged helper is left unchanged, including unknown hashes. An explicit request retains the full input/output hash guards and rejects unknown helpers. Targeted Model Experience, marketplace, and CUA-surface repairs reject this separate binary operation.
