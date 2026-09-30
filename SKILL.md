@@ -460,6 +460,8 @@ On Windows, the high-level bound `getScreenshot()` can reject a window with `mul
 
 ## Useful Wrapper Options
 
+- `-PatchWindowsStoreUpdateFallback`: opt in only when Desktop logs show a newer official manifest but Store reports `NoUpdates`. The supported 26.928 branch then invokes the existing official MSIX fallback instead of reporting up to date. Run a full DryRun first; this option changes Codex's updater, not Windows Store tasks or policy. See [Windows Store download fallback](references/windows-store-update-fallback.md).
+
 - `-DryRun`: verify bundle targets only; no install. Unless `-KeepBuild` is supplied, the wrapper asks the patcher to clean its copied build root after a successful patch stage. Cleanup is best-effort, so inspect the reported path when zero residual data is required; a later wrapper verification can still fail after the patcher has already cleaned its own build root.
 - `-NoLaunch`: install but do not start Codex Desktop.
 - `-SkipFastVerify`: skip the local HTTP/WebSocket `service_tier` capture.
