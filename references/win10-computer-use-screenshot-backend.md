@@ -442,3 +442,15 @@ The `219BFB75` candidate passed eight static captures, eight visually inspected 
 The `8010E5ED` candidate was installed inside the signed `26.924.2738.1` package. Its extracted runtime and packaged helper hashes match. Real Desktop CUA calls navigated Explorer to a controlled folder and returned two identical, visually inspected `1125x719` images in separate calls. Three later `666x593` Task Manager Performance images showed distinct CPU curves and advancing uptime; all were visually inspected. Their encoded sizes were 66,776, 66,046 and 66,510 bytes. The last capture took 54 ms. Earlier captures taken while the target was obscured were excluded, and an AX click with unavailable geometry was replaced by a screenshot-based coordinate click.
 
 Both profile harnesses cover original/candidate hashes, installation, idempotence, rollback, backup preservation and unknown-hash rejection on isolated copies. Only `0.7.4-8010E5ED` has its end-to-end Desktop field populated. These bounded observations do not prove long-duration resource stability or repair unrelated AX geometry behavior.
+
+### `@oai/sky 0.7.5` helper `ABDD75DF`
+
+Desktop package `26.928.1915.0` ships a re-signed helper with the same ten section headers and raw section bodies as `0.7.4-8010E5ED`. The only differences are two checksum bytes, three timestamp bytes and 5,581 certificate-overlay bytes. All ten guarded regions match; the exact new profile retains independent full-file hash guards.
+
+- Original SHA-256: `ABDD75DF576B3CBCC7ED170DE1B4F27A65C81E25768A9B0B46D682FB586FB483`.
+- Patched SHA-256: `96B210D19A54172E95DA66E3C622611D3B91C9432BA3877672E3D39658921BEE`.
+- The original repeatedly timed out in `FrameArrived` and `get_window_state` after successful activation on Windows 10 build 19045.
+- The isolated harness `-SkyVersion 0.7.5-ABDD75DF` passed installation, idempotence, rollback, complete hash checks and unknown-input rejection.
+- After patching the current user runtime, real Desktop Node REPL calls returned visually inspected `1104x719` Explorer captures in independent calls and accepted an `F5` refresh. A coordinate click selected Task Manager's Performance tab. Three subsequent `666x593` captures showed advancing uptime and changing charts; all were visually inspected and had distinct SHA-256 values.
+
+The signed `26.928.1915.1` MSIX was subsequently installed in place and opened successfully. Its packaged helper and extracted runtime match the complete patched hash. A fresh Desktop session repeated two independent `1104x719` Explorer captures, an `F5` refresh, a coordinate selection of the Performance tab, and three visually inspected `666x593` Task Manager frames with changing CPU charts and advancing uptime. The profile's installed-Desktop field is `26.928.1915.1`. This is a bounded capture sample, not a long-duration resource soak.
