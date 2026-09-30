@@ -13,7 +13,7 @@ $Profiles = @{
     SkyVersion = '0.7.5'
     OriginalHash = 'ABDD75DF576B3CBCC7ED170DE1B4F27A65C81E25768A9B0B46D682FB586FB483'
     PatchedHash = '13C46D415AC4E69AA0E27F0B9DE3A18057ED16FFBC791E4D3B1DF65935DFFA65'
-    EndToEndValidatedDesktopVersion = $null
+    EndToEndValidatedDesktopVersion = '26.928.1915.3'
   }
   '0.4.20-F2B2F56F' = [ordered]@{
     SkyVersion = '0.4.20'

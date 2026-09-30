@@ -1541,7 +1541,7 @@ $PatchProfiles = @(
   # Same ten section headers and bodies as 0.7.4-8010E5ED; timestamp, checksum and signing data differ.
   [ordered]@{
     Name = '@oai/sky 0.7.5 helper ABDD75DF / Windows 10 screenshot backend'
-    ValidatedDesktopVersion = $null
+    ValidatedDesktopVersion = '26.928.1915.3'
     SkyVersion = '0.7.5'
     OriginalSha256 = 'ABDD75DF576B3CBCC7ED170DE1B4F27A65C81E25768A9B0B46D682FB586FB483'
     PatchedSha256 = '13C46D415AC4E69AA0E27F0B9DE3A18057ED16FFBC791E4D3B1DF65935DFFA65'
