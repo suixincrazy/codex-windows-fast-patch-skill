@@ -424,33 +424,24 @@ This smoke test demonstrates screenshot capture, text input, and coordinate mous
 
 When driving the helper outside Desktop, point `CODEX_HOME` at a disposable directory. Run against a real Codex home, the helper rewrote the `notify` hook in `config.toml` to its own executable path and re-serialized the whole file, so a test copy silently replaced the hook that Desktop had configured. Pointed at an empty directory, it created `config.toml`, the goals, logs, memories, queue and state SQLite databases, `installation_id` and `skills` there.
 
-### `@oai/sky 0.7.4` callback timeout
+### `@oai/sky 0.7.4` and `0.7.5` callback timeout
 
-This build already checks whether the border property is available. On Windows 10, the original `219BFB75` helper enumerated and activated the target successfully, but repeated screenshot requests timed out in the synchronous `FrameArrived` copy path.
+These builds already check whether the border property is available. On Windows 10, screenshot requests timed out in the synchronous `FrameArrived` copy path after enumeration and activation succeeded.
 
-| Source Desktop | Original SHA-256 | Patched SHA-256 | Installed Desktop acceptance |
-| --- | --- | --- | --- |
-| `26.924.1866.0` | `219BFB756D96BCE3EA6C0FFBEFB690C7FE3682E12117D330F46BC21BD1E2C576` | `568419455B9D36C6B4AB852A6B0D9C625C98026C143154A5D88CD035C7B95ACD` | Pending; standalone helper checks only |
-| `26.924.2738.0` | `8010E5ED48DFD9C06B73B564E020ED1CCE5914071A46725C8702360E4C71DD9C` | `E238ADA0032AF2E672FCD3C6D5F06C6A9162D390AC49FCA296ED3723FC1BDCBF` | `26.924.2738.1` |
+| Sky profile | Original SHA-256 | Patched SHA-256 |
+| --- | --- | --- |
+| `0.7.4-219BFB75` | `219BFB756D96BCE3EA6C0FFBEFB690C7FE3682E12117D330F46BC21BD1E2C576` | `FFA903091DA4FA9A8ABC13C632ECBA6529D9908ABA6D3F28A4E369E61F8DA814` |
+| `0.7.4-8010E5ED` | `8010E5ED48DFD9C06B73B564E020ED1CCE5914071A46725C8702360E4C71DD9C` | `057170CDC8F87B005B66BF90AC9E14BB9CA644FAC7621110B1147138DB7C0D19` |
+| `0.7.5-ABDD75DF` | `ABDD75DF576B3CBCC7ED170DE1B4F27A65C81E25768A9B0B46D682FB586FB483` | `13C46D415AC4E69AA0E27F0B9DE3A18057ED16FFBC791E4D3B1DF65935DFFA65` |
 
-Both originals are 1,551,152 bytes. All ten section headers and raw section bodies match between the originals. Their 4,229 differing bytes are confined to the checksum (3) and certificate overlay (4,226), with no other differences.
+The originals have identical ten section headers and raw section bodies. Differences are confined to signing metadata, timestamps and checksums. Each profile independently guards its entire input and output hashes.
 
-The patch redirects the callback through a 132-byte MTA worker wrapper and changes the busy/once branches. There is insufficient executable padding, so a new 512-byte RX section, `.cuw10`, uses the beginning of the certificate overlay at raw `0x176e00`, RVA `0x17e000`. The invalidated certificate directory is cleared. Exact guarded regions include the PE header changes; complete original backups and complete output hashes are required, and the outer MSIX is signed after repacking.
+The patch redirects the callback to an MTA worker and changes the busy/once branches. A 512-byte RX `.cuw10` section maps certificate-overlay bytes at raw `0x176e00`, RVA `0x17e000`. The invalidated certificate directory is cleared; the outer MSIX must be signed after repacking.
 
-The `219BFB75` candidate passed eight static captures, eight visually inspected changing Task Manager Performance frames, and a thirty-capture resource sample from standalone helper processes. These checks do not establish installation of Desktop `26.924.1866.0`.
+The callback and worker have separate prologs and epilogs. Static `RUNTIME_FUNCTION` entries cover `[0x17e000,0x17e072)` and `[0x17e080,0x17e0b2)`, referencing `UNWIND_INFO` at `0x17e0c0` and `0x17e0c8`. The exception directory and `.pdata` virtual size include both sorted entries. Thirteen guarded regions cover code and PE metadata.
 
-The `8010E5ED` candidate was installed inside the signed `26.924.2738.1` package. Its extracted runtime and packaged helper hashes match. Real Desktop CUA calls navigated Explorer to a controlled folder and returned two identical, visually inspected `1125x719` images in separate calls. Three later `666x593` Task Manager Performance images showed distinct CPU curves and advancing uptime; all were visually inspected. Their encoded sizes were 66,776, 66,046 and 66,510 bytes. The last capture took 54 ms. Earlier captures taken while the target was obscured were excluded, and an AX click with unavailable geometry was replaced by a screenshot-based coordinate click.
+The previous wrapper omitted x64 unwind metadata. Its hashes are intentionally unsupported by this revision. For migration, restore the exact original from a verified backup with the previous patcher, then apply this revision; never relabel the old output as current or bypass the hash guard. A package rebuild can instead start from the verified official package.
 
-Both profile harnesses cover original/candidate hashes, installation, idempotence, rollback, backup preservation and unknown-hash rejection on isolated copies. Only `0.7.4-8010E5ED` has its end-to-end Desktop field populated. These bounded observations do not prove long-duration resource stability or repair unrelated AX geometry behavior.
+All three isolated profile harnesses passed candidate hashes, installation, idempotence, rollback, backup preservation and unknown-input rejection. `test-computer-use-helper-win10-unwind.py` additionally maps each candidate without resolving imports or running its entry point. Windows `RtlLookupFunctionEntry` and `RtlVirtualUnwind` restore RIP, RSP and RBX at 47 instruction boundaries. Real callback success, CreateThread failure, busy and worker executions supply ten live caller frames, checking stack alignment and stack arguments. API/COM stubs exist only in the private test mapping; input files are unchanged. This checks native stack walking, not language-level exception dispatch or a long-duration resource soak.
 
-### `@oai/sky 0.7.5` helper `ABDD75DF`
-
-Desktop package `26.928.1915.0` ships a re-signed helper with the same ten section headers and raw section bodies as `0.7.4-8010E5ED`. The only differences are two checksum bytes, three timestamp bytes and 5,581 certificate-overlay bytes. All ten guarded regions match; the exact new profile retains independent full-file hash guards.
-
-- Original SHA-256: `ABDD75DF576B3CBCC7ED170DE1B4F27A65C81E25768A9B0B46D682FB586FB483`.
-- Patched SHA-256: `96B210D19A54172E95DA66E3C622611D3B91C9432BA3877672E3D39658921BEE`.
-- The original repeatedly timed out in `FrameArrived` and `get_window_state` after successful activation on Windows 10 build 19045.
-- The isolated harness `-SkyVersion 0.7.5-ABDD75DF` passed installation, idempotence, rollback, complete hash checks and unknown-input rejection.
-- After patching the current user runtime, real Desktop Node REPL calls returned visually inspected `1104x719` Explorer captures in independent calls and accepted an `F5` refresh. A coordinate click selected Task Manager's Performance tab. Three subsequent `666x593` captures showed advancing uptime and changing charts; all were visually inspected and had distinct SHA-256 values.
-
-The signed `26.928.1915.1` MSIX was subsequently installed in place and opened successfully. Its packaged helper and extracted runtime match the complete patched hash. A fresh Desktop session repeated two independent `1104x719` Explorer captures, an `F5` refresh, a coordinate selection of the Performance tab, and three visually inspected `666x593` Task Manager frames with changing CPU charts and advancing uptime. The profile's installed-Desktop field is `26.928.1915.1`. This is a bounded capture sample, not a long-duration resource soak.
+Earlier Desktop capture acceptance used the obsolete wrapper and is not acceptance of these output hashes. Installed-Desktop validation remains unset until the revised package is deployed and fresh independent captures, input and changing native frames are visually verified.
