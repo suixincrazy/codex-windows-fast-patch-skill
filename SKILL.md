@@ -80,7 +80,7 @@ if (Test-Path -LiteralPath $config -PathType Leaf) {
 }
 ```
 
-Do not proceed with a config write if the backup of an existing config fails. The shared TOML writer uses a basic string when a value contains an apostrophe or control character; doubled apostrophes are not valid TOML escaping. Validate the candidate content before replacing the config when `tomllib` is available, and validate again after the complete repair. A missing parser is a tooling limitation, not evidence of invalid configuration.
+Do not proceed with a config write if the backup of an existing config fails. The shared TOML writer uses a basic string when a value contains an apostrophe or control character; doubled apostrophes are not valid TOML escaping. Validate the candidate content before replacing the config when `tomllib` is available, and validate again after the complete repair. Windows PowerShell 5.1 can prefix native stdin with a UTF-8 BOM even with a no-BOM `$OutputEncoding`; decode validator input with `utf-8-sig` to avoid falsely rejecting valid content. This transport handling does not change the no-BOM file writer or the malformed-TOML rejection. A missing parser is a tooling limitation, not evidence of invalid configuration.
 
 ## Workflow Selection
 

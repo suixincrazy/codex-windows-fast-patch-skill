@@ -28,7 +28,8 @@ try:
 except ImportError:
     sys.exit(42)
 try:
-    tomllib.loads(sys.stdin.buffer.read().decode('utf-8'))
+    # Windows PowerShell 5.1 can prefix native stdin with a UTF-8 BOM.
+    tomllib.loads(sys.stdin.buffer.read().decode('utf-8-sig'))
 except (ValueError, UnicodeError):
     sys.exit(1)
 '@
