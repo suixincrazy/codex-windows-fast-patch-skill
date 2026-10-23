@@ -121,7 +121,7 @@ try {
   put(path.join(path.dirname(path.dirname(wrongVersion.targets[0])), '.codex-plugin', 'plugin.json'), '{"version":"0.1.0"}');
   check(() => assert.throws(() => run(wrongVersion.options), /target version/));
   const independent = fixture('independent-runtime');
-  for (const plugin of ['browser', 'chrome']) fs.unlinkSync(path.join(independent.options.installedMarketplaceRoot, 'plugins', plugin, '.codex-plugin', 'plugin.json'));
+  for (const plugin of ['browser', 'chrome']) fs.rmSync(path.join(independent.options.installedMarketplaceRoot, 'plugins', plugin), { recursive: true });
   put(independent.targets[8], bad);
   check(() => assert.throws(() => run({ ...independent.options, verifyOnly: true }), /missing or corrupt/));
   check(() => assert.equal(run(independent.options)[0].state, 'repaired'));
@@ -130,20 +130,39 @@ try {
   run(independent.options);
   check(() => assert.deepEqual(fs.readFileSync(stale), bad));
 
+  const missingPackage = fixture('missing-package');
+  check(() => assert.throws(() => run({ ...missingPackage.options, installedMarketplaceRoot: path.join(root, 'absent') }), /marketplace directory missing/));
+  fs.unlinkSync(path.join(missingPackage.options.installedMarketplaceRoot, 'plugins', 'browser', '.codex-plugin', 'plugin.json'));
+  check(() => assert.throws(() => run(missingPackage.options), /plugin descriptor/));
+  check(() => assert.throws(() => run({ ...f.options, runtime: { ...f.options.runtime, bins: [] } }), /No selected AX runtime targets/));
+  const legacy = path.join(root, 'legacy'); fs.mkdirSync(legacy);
+  check(() => assert.deepEqual(run({ ...f.options, installedMarketplaceRoot: legacy, runtime: null }), []));
+
   const stdin = spawnSync(process.execPath, [path.join(__dirname, 'repair-browser-accessibility-assets.cjs')], {
     input: '\uFEFF' + JSON.stringify({ ...f.options, verifyOnly: true }), encoding: 'utf8',
   });
   check(() => assert.equal(stdin.status, 0, stdin.stderr));
   check(() => assert.equal(JSON.parse(stdin.stdout).length, 9));
   if (process.platform === 'win32') {
+    const unicode = fixture('unicode-\u4fee\u590d-\u7528\u6237');
     const fixtureJson = path.join(root, 'wrapper.json');
-    put(fixtureJson, JSON.stringify(f.options));
+    put(fixtureJson, JSON.stringify(unicode.options));
     const hosts = [path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), 'pwsh.exe'];
     for (const host of hosts) {
       const wrapped = spawnSync(host, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'test-browser-accessibility-wrapper.ps1'), '-FixtureJson', fixtureJson, '-NodePath', process.execPath], { encoding: 'utf8' });
       if (host === 'pwsh.exe' && wrapped.error?.code === 'ENOENT') continue;
       check(() => assert.equal(wrapped.status, 0, wrapped.stderr || wrapped.stdout));
       check(() => assert.equal((wrapped.stdout.match(/Browser AX asset verified:/g) || []).length, 8));
+      put(unicode.targets[0], bad);
+      const rejected = spawnSync(host, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'test-browser-accessibility-wrapper.ps1'), '-FixtureJson', fixtureJson, '-NodePath', process.execPath, '-ExpectFailure'], { encoding: 'utf8' });
+      check(() => assert.equal(rejected.status, 0, rejected.stderr || rejected.stdout));
+      check(() => assert.deepEqual(fs.readFileSync(unicode.targets[0]), bad));
+      put(unicode.targets[0], good);
+      put(fixtureJson, JSON.stringify({ ...unicode.options, installedMarketplaceRoot: legacy }));
+      const notApplicable = spawnSync(host, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'test-browser-accessibility-wrapper.ps1'), '-FixtureJson', fixtureJson, '-NodePath', process.execPath], { encoding: 'utf8' });
+      check(() => assert.equal(notApplicable.status, 0, notApplicable.stderr || notApplicable.stdout));
+      check(() => assert.match(notApplicable.stdout, /Browser AX assets not applicable/));
+      put(fixtureJson, JSON.stringify(unicode.options));
     }
   }
   console.log(JSON.stringify({ passed: checks }));

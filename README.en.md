@@ -35,7 +35,7 @@ This community-maintained **Agent Skill** contains diagnostic workflows and repa
 | Problem | Coverage |
 | --- | --- |
 | **Missing models or speed controls** | Fast Mode, hidden existing model entries, the Power slider, and the Ultra toggle |
-| **UI or plugin issues** | Language resets, missing Goal entries, unavailable marketplaces or install buttons |
+| **UI or plugin issues** | Language resets, missing Goal entries, unavailable marketplaces or install buttons, and client-filtered Image-guided Assets |
 | **Unavailable browser access** | In-app browser, Chrome control, and specific authentication-dependency errors with custom providers |
 | **Computer-control failures** | Computer Use / Any App, cross-call window operations, and some Windows 10 screenshot failures |
 | **Broken phone remote control** | Missing entry points, QR codes, pairing, or expired-version errors while retaining third-party API use |
@@ -67,8 +67,10 @@ For Claude Code, change the destination to `$env:USERPROFILE\.claude\skills\code
 ```text
 Use codex-windows-fast-patch to inspect and repair the model-list,
 browser, and computer-control issues after my Codex update. Preserve my
-configuration and conversations, verify real operations, and clean up temporary files.
+configuration and conversations, run background verification, and clean up temporary files.
 ```
+
+Verification defaults to background read-only checks. It does not automatically open Calculator or another test app, change native-window focus, or inject mouse/keyboard input. Runtime, plugin, and window-enumeration results are reported separately. Live native screenshot/input tests run only when explicitly requested or authorized, and untested operations are identified as such.
 
 **Request phone remote control separately:**
 
@@ -130,6 +132,10 @@ The same visible symptom, such as an unavailable browser or a missing model, may
 
 Here, "reinstallation" is an in-place update that preserves user data, not an uninstall followed by an install. **A reported installation error, or an app that still cannot start after installation finishes, is a failure to investigate, not normal waiting.**
 
+The recoverable installer retains a separate state file beside its log, recording the source, target, installer process, acceptance and cleanup results. After a restart, inspect it read-only with `scripts/get-model-experience-repair-status.ps1 -StatePath <state-file>`. If Codex updates again, check whether the newer package supersedes the old repair before deploying anything twice. See [post-update resume and verification](references/post-update-verification.md), including configuration-change auditing.
+
+ASAR extraction and packing first reuse a working CLI already installed in the npm cache, without requiring online registry access or cached registry metadata. Only when no usable tool is present does the existing npx/pnpm acquisition path run. A selected tool failure stops the operation rather than retrying a download and hiding an archive error. Non-dry-run builds resolve Windows SDK tools before copying the application tree, so missing packaging dependencies fail before expensive patch work; existing valid SDK caches remain reusable.
+
 ## More help
 
 | Looking for | Documentation |
@@ -138,6 +144,7 @@ Here, "reinstallation" is an in-place update that preserves user data, not an un
 | Model, browser, plugin, or installation troubleshooting | [Troubleshooting cases](references/restriction-debug-cases.md) |
 | Phone authorization, pairing, and API issues | [Phone remote-control troubleshooting](references/remote-control-debug-cases.md) |
 | Supported Windows 10 screenshot profiles and validation scope | [Windows 10 screenshot compatibility](references/win10-computer-use-screenshot-backend.md) |
+| Investigating Windows 10 capture from a Windows 11 host | [Windows 10 guest and isolated diagnostic](references/win10-validation-on-win11.md) |
 
 Still stuck? [Open an issue](https://github.com/chen0416ccc-cpu/codex-windows-fast-patch-skill/issues/new) with your Windows and Codex versions, symptoms, and redacted logs. Do not upload `auth.json`, API keys, OAuth tokens, or browser profiles. See [SECURITY.md](SECURITY.md) for handling sensitive material.
 

@@ -4055,15 +4055,23 @@ function Invoke-BrowserAccessibilityAssets {
     }
   }
   $oldPreference = $ErrorActionPreference
+  $oldEncoding = $OutputEncoding
   try {
     $ErrorActionPreference = 'Continue'
+    $OutputEncoding = [Text.UTF8Encoding]::new($false)
     $output = @($options | ConvertTo-Json -Depth 6 -Compress |
       & $RuntimeInventory.NodePath (Join-Path $PSScriptRoot 'repair-browser-accessibility-assets.cjs') 2>&1)
     $exitCode = $LASTEXITCODE
-  } finally { $ErrorActionPreference = $oldPreference }
+  } finally {
+    $OutputEncoding = $oldEncoding
+    $ErrorActionPreference = $oldPreference
+  }
   $detail = ($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
   if ($exitCode -ne 0) { throw "Browser accessibility asset check failed: $detail" }
   $results = $detail | ConvertFrom-Json
+  if ($null -eq $results -or @($results).Count -eq 0) {
+    Write-Log 'Browser AX assets not applicable: inspected package layout has no supported AX loader'
+  }
   foreach ($result in $results) {
     Write-Log "Browser AX asset $($result.state): $($result.target) sha256=$($result.sha256) packaged-peer-recovery=$($result.sourceRecovered)"
   }

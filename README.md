@@ -35,7 +35,7 @@
 | 问题 | 覆盖范围 |
 | --- | --- |
 | **模型与速度选项缺失** | Fast Mode、被隐藏的已有模型、Power 拖动条、Ultra 开关 |
-| **界面与插件异常** | 语言重置、Goal 等入口消失、插件市场与安装按钮不可用 |
+| **界面与插件异常** | 语言重置、Goal 等入口消失、插件市场与安装按钮不可用、客户端过滤隐藏的 Image-guided Assets |
 | **浏览器不可用** | 内置浏览器、Chrome 控制、自定义供应商下特定的登录依赖错误 |
 | **电脑操控异常** | Computer Use / Any App、跨调用窗口操作、部分 Win10 截图故障 |
 | **手机远控失效** | 入口、二维码、配对和版本过期问题，保留第三方 API 主使用方式 |
@@ -66,8 +66,10 @@ Claude Code 可将目标改为 `$env:USERPROFILE\.claude\skills\codex-windows-fa
 
 ```text
 使用 codex-windows-fast-patch，检查并修复 Codex 更新后的模型列表、
-浏览器和电脑操控问题。保留我的配置与会话，完成后实际验证并清理临时文件。
+浏览器和电脑操控问题。保留我的配置与会话，完成后做后台核验并清理临时文件。
 ```
+
+默认采用后台只读验收，不自动打开计算器等测试应用，不切换原生窗口焦点或发送鼠标键盘输入。运行时、插件、窗口枚举等检查会分别报告；真实截图和原生输入测试仅在你明确要求或同意后执行，未执行时会如实注明。
 
 **需要手机远控时单独提出：**
 
@@ -129,6 +131,10 @@ git -C $SkillRoot pull --ff-only
 
 这里的“重装”采用保留用户数据的原位更新，不是先卸载再安装。**如果安装明确报错，或安装完成后仍打不开，就需要按失败处理并排查，不能当作正常等待。**
 
+可恢复安装器会在日志旁保留独立的状态文件，记录源版本、目标版本、安装进程、验收和清理结果。重启后可用 `scripts/get-model-experience-repair-status.ps1 -StatePath <状态文件路径>` 只读查询；如果又更新了 Codex，应先确认新版本是否已替代旧修复，避免重复安装。详细步骤和配置变更核对见[更新后续接与验收](references/post-update-verification.md)。
+
+ASAR 解包和打包优先复用 npm 缓存中可运行的本地工具，不依赖 npm 的在线索引或离线索引元数据；仅在没有可用工具时沿用 npx/pnpm 获取方式。已选定工具执行失败时直接停止，不通过重新下载掩盖归档错误。正式打包在复制应用目录之前检查 Windows SDK 工具，避免完成耗时补丁后才发现缺少打包依赖；现有有效 SDK 缓存可复用。
+
 ## 更多帮助
 
 | 想了解什么 | 文档 |
@@ -137,6 +143,7 @@ git -C $SkillRoot pull --ff-only
 | 模型、浏览器、插件或安装故障 | [常见问题排查](references/restriction-debug-cases.md) |
 | 手机远控的授权、配对和 API 问题 | [手机远控排查](references/remote-control-debug-cases.md) |
 | Win10 截图的适用版本与验证范围 | [Win10 截图兼容说明](references/win10-computer-use-screenshot-backend.md) |
+| 本机是 Win11，如何分析和验证 Win10 截图问题 | [Win10 客体与独立验证工具](references/win10-validation-on-win11.md) |
 
 仍有问题请[提交 issue](https://github.com/chen0416ccc-cpu/codex-windows-fast-patch-skill/issues/new)，附上 Windows / Codex 版本、问题现象和脱敏日志。不要上传 `auth.json`、API key、OAuth token 或浏览器资料；敏感信息处理见 [SECURITY.md](SECURITY.md)。
 

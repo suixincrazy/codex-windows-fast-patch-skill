@@ -1,6 +1,7 @@
 param(
   [string]$AppPath,
   [string]$OutputRoot = (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\codex-msix-repack'),
+  [string]$AsarWorkRoot,
   [switch]$InstallPrerequisites,
   [switch]$Install,
   [switch]$Launch,
@@ -16,6 +17,8 @@ param(
   [switch]$VerifyFastModeRequest,
   [switch]$OnlyBundledMarketplaceCopy,
   [switch]$OnlyComputerUseSurface,
+  [switch]$OnlyNodeReplProxyEnv,
+  [switch]$OnlyComputerUseSurfaceAndProxyEnv,
   [switch]$PatchWindows10ScreenshotHelper,
   [switch]$PatchWindowsStoreUpdateFallback,
   [Alias('OnlyCustomModels')]
@@ -45,15 +48,25 @@ function Fail {
 }
 
 function Assert-ComputerUseSurfaceOptions {
+  if ($OnlyComputerUseSurfaceAndProxyEnv -and
+      ($OnlyComputerUseSurface -or $OnlyNodeReplProxyEnv -or $OnlyBundledMarketplaceCopy -or $OnlyModelExperience -or
+       $AddLocalPluginMarketplace -or $VerifyFastModeRequest -or $PatchWindows10ScreenshotHelper -or $PatchWindowsStoreUpdateFallback)) {
+    Fail '-OnlyComputerUseSurfaceAndProxyEnv cannot be combined with other targeted modes, marketplace registration, or unrelated verification/patches'
+  }
+  if ($OnlyNodeReplProxyEnv -and
+      ($OnlyComputerUseSurface -or $OnlyBundledMarketplaceCopy -or $OnlyModelExperience -or
+       $AddLocalPluginMarketplace -or $VerifyFastModeRequest -or $PatchWindows10ScreenshotHelper -or $PatchWindowsStoreUpdateFallback)) {
+    Fail '-OnlyNodeReplProxyEnv cannot be combined with other targeted modes, marketplace registration, or unrelated verification/patches'
+  }
   if ($OnlyComputerUseSurface -and
       ($OnlyBundledMarketplaceCopy -or $OnlyModelExperience -or
        $AddLocalPluginMarketplace -or $VerifyFastModeRequest -or $PatchWindows10ScreenshotHelper)) {
     Fail '-OnlyComputerUseSurface cannot be combined with other targeted modes, marketplace registration, or Fast Mode verification'
   }
-  if ($PatchWindows10ScreenshotHelper -and ($OnlyBundledMarketplaceCopy -or $OnlyModelExperience)) {
+  if ($PatchWindows10ScreenshotHelper -and ($OnlyBundledMarketplaceCopy -or $OnlyModelExperience -or $OnlyNodeReplProxyEnv)) {
     Fail '-PatchWindows10ScreenshotHelper requires the full repair mode'
   }
-  if ($PatchWindowsStoreUpdateFallback -and ($OnlyBundledMarketplaceCopy -or $OnlyModelExperience -or $OnlyComputerUseSurface)) {
+  if ($PatchWindowsStoreUpdateFallback -and ($OnlyBundledMarketplaceCopy -or $OnlyModelExperience -or $OnlyComputerUseSurface -or $OnlyNodeReplProxyEnv)) {
     Fail '-PatchWindowsStoreUpdateFallback requires the full repair mode'
   }
 }
@@ -621,12 +634,54 @@ function Invoke-NpxAsar {
     [string]$Source,
     [string]$Target
   )
+  # npm exec --offline still needs cached registry metadata. Reuse an already
+  # installed ASAR CLI directly, so a registry outage cannot break extraction.
+  $node = Get-Command node -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($node) {
+    $cacheRoots = @()
+    if ($env:npm_config_cache) { $cacheRoots += $env:npm_config_cache }
+    $npm = Get-Command npm -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($npm) {
+      try {
+        $configuredCache = & $npm.Source config get cache 2>$null
+        if ($LASTEXITCODE -eq 0 -and $configuredCache) {
+          $cacheRoots += ([string]($configuredCache | Select-Object -Last 1)).Trim()
+        }
+      } catch {
+        # Configuration discovery is optional; known cache roots and acquisition remain usable.
+        Write-Log 'npm cache configuration lookup failed; checking known cache roots'
+      }
+    }
+    if ($env:LOCALAPPDATA) { $cacheRoots += Join-Path $env:LOCALAPPDATA 'npm-cache' }
+    foreach ($cacheRoot in @($cacheRoots | Select-Object -Unique)) {
+      $npxRoot = Join-Path $cacheRoot '_npx'
+      foreach ($cacheEntry in @(Get-ChildItem -LiteralPath $npxRoot -Directory -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        $asarRoot = Join-Path $cacheEntry.FullName 'node_modules\asar'
+        $manifestPath = Join-Path $asarRoot 'package.json'
+        $cliPath = Join-Path $asarRoot 'bin\asar.js'
+        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $cliPath -PathType Leaf)) { continue }
+        try {
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if ($manifest.name -ne 'asar' -or $manifest.bin.asar -ne './bin/asar.js') { continue }
+          $probe = & $node.Source $cliPath --version 2>$null
+          if ($LASTEXITCODE -ne 0 -or ([string]$probe).Trim() -ne ('v' + $manifest.version)) { continue }
+        } catch { continue }
+        Write-Log "using cached ASAR $($manifest.version): $cliPath"
+        & $node.Source $cliPath $Action $Source $Target
+        if ($LASTEXITCODE -ne 0) {
+          Fail "ASAR $Action failed with exit code $LASTEXITCODE"
+        }
+        return
+      }
+    }
+  }
   $npx = Get-Command npx -ErrorAction SilentlyContinue | Select-Object -First 1
   if ($npx) {
     & $npx.Source --yes asar $Action $Source $Target
   } else {
     # Codex's bundled Windows runtime can include pnpm and node without the
-    # npm/npx shims. Keep npx as the preferred path, but make ASAR extraction
+    # npm/npx shims. Without a usable cached CLI, make ASAR extraction
     # usable from that supported runtime layout as well.
     $pnpm = (Get-RequiredCommand 'pnpm').Source
     & $pnpm dlx asar $Action $Source $Target
@@ -697,7 +752,28 @@ const currentDirectOriginalRe = /function (\w+)\(e\)\{let (\w+)=([^,;]+),(\w+)=e
 const currentAsyncOriginalRe = /async function (\w+)\((\w+),(\w+)\)\{let (\w+)=await ([A-Za-z_$][\w$]*)\(\2,\3\);return \4===`chatgpt`\?\(await \2\.query\.fetch\(([A-Za-z_$][\w$]*),\{authMethod:\4,hostId:\3\}\)\)\.requirements\?\.featureRequirements\?\.fast_mode!==!1:!1\}/;
 const currentCachedAsyncOriginalRe = /async function ([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{let ([A-Za-z_$][\w$]*)=await ([A-Za-z_$][\w$]*)\(\2,\3\);if\(\4!==`chatgpt`\)return!1;let ([A-Za-z_$][\w$]*)=await ([A-Za-z_$][\w$]*)\(\3,\{priority:`critical`\}\);return \2\.query\.setData\(([A-Za-z_$][\w$]*),\{authMethod:\4,hostId:\3\},\6\),\6\.requirements\?\.featureRequirements\?\.fast_mode!==!1\}/;
 const currentManagerCachedAsyncOriginalRe = /async function ([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{let ([A-Za-z_$][\w$]*)=await ([A-Za-z_$][\w$]*)\(\2,\3\);if\(\4!==`chatgpt`(?:&&\4!==`personalAccessToken`)?\)return!1;let ([A-Za-z_$][\w$]*)=await ([A-Za-z_$][\w$]*)\(\2,\3,\{priority:`critical`\}\);return \2\.query\.setData\(([A-Za-z_$][\w$]*),\{authMethod:\4,hostId:\3\},\6\),\6\.requirements\?\.featureRequirements\?\.fast_mode!==!1\}/;
+// Desktop 26.1007 delegates both speed modes to the shared requirements converter.
+const speedAccessOriginalRe = /async function ([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{let ([A-Za-z_$][\w$]*)=await ([A-Za-z_$][\w$]*)\(\2,\3\);if\(\4!==`chatgpt`&&\4!==`personalAccessToken`(?:&&\4!==`amazonBedrock`)?\)return null;let ([A-Za-z_$][\w$]*)=await ([A-Za-z_$][\w$]*)\(\2,\3,\{priority:`critical`\}\);return \2\.query\.setData\(([A-Za-z_$][\w$]*),\{authMethod:\4,hostId:\3\},\6\),([A-Za-z_$][\w$]*)\(\6\)\}/g;
+const speedAccessPatchedRe = /async function ([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{let ([A-Za-z_$][\w$]*)=await ([A-Za-z_$][\w$]*)\(\2,\3\);let ([A-Za-z_$][\w$]*)=await ([A-Za-z_$][\w$]*)\(\2,\3,\{priority:`critical`\}\);return \2\.query\.setData\(([A-Za-z_$][\w$]*),\{authMethod:\4,hostId:\3\},\6\),([A-Za-z_$][\w$]*)\(\6\)\}/g;
 const currentSplitConditionRe = /if\((\w+)\?\.authMethod!==`chatgpt`\|\|(\w+)\)\{/;
+
+const speedOriginal = [...text.matchAll(speedAccessOriginalRe)];
+const speedPatched = [...text.matchAll(speedAccessPatchedRe)];
+if (speedOriginal.length + speedPatched.length > 1) {
+  process.stderr.write('fast-mode-speed-access-target-ambiguous\n');
+  process.exit(2);
+}
+if (speedOriginal.length === 1) {
+  const [source, fn, manager, host, auth, authFn, data, requirementsFn, query, converter] = speedOriginal[0];
+  const replacement = `async function ${fn}(${manager},${host}){let ${auth}=await ${authFn}(${manager},${host});let ${data}=await ${requirementsFn}(${manager},${host},{priority:\`critical\`});return ${manager}.query.setData(${query},{authMethod:${auth},hostId:${host}},${data}),${converter}(${data})}`;
+  fs.writeFileSync(file, text.replace(source, replacement));
+  process.stdout.write('patched');
+  process.exit(0);
+}
+if (speedPatched.length === 1) {
+  process.stdout.write('already-patched');
+  process.exit(0);
+}
 
 if (legacyPatchedRe.test(text) || currentAsyncPatchedRe.test(text) || currentCachedAsyncPatchedRe.test(text) || currentManagerCachedAsyncPatchedRe.test(text) || (currentDirectPatchedRe.test(text) && !legacyOriginalRe.test(text) && !currentDirectOriginalRe.test(text) && !currentSplitConditionRe.test(text))) {
   process.stdout.write('already-patched');
@@ -766,6 +842,48 @@ const fs = require('node:fs');
 const file = process.argv[2];
 const text = fs.readFileSync(file, 'utf8');
 
+const speedUiPrefix = /function ([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\)\{let ([A-Za-z_$][\w$]*)=\(0,[A-Za-z_$][\w$]*\.c\)\(10\),([A-Za-z_$][\w$]*)=[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\),([A-Za-z_$][\w$]*)=\2\?\.hostId\?\?\4,([A-Za-z_$][\w$]*)=[A-Za-z_$][\w$]*\(\5\),([A-Za-z_$][\w$]*)=/g;
+const speedUiCandidates = [];
+for (const match of text.matchAll(speedUiPrefix)) {
+  const [, fn, param, memo, root, host, auth, allowed] = match;
+  const offset = match.index + match[0].length;
+  const original = `${auth}?.authMethod===\`chatgpt\`||${auth}?.authMethod===\`personalAccessToken\``;
+  const originals = [original + `||${auth}?.authMethod===\`amazonBedrock\``, original];
+  const patched = '/*CODEX_SERVICE_TIER_ACCESS_UI_V1*/!0';
+  const value = originals.find(candidate => text.startsWith(candidate, offset) && text[offset + candidate.length] === ',') ??
+    (text.startsWith(patched, offset) && text[offset + patched.length] === ',' ? patched : null);
+  if (value === null) continue;
+  const end = text.indexOf('}var ', offset);
+  if (end < 0 || end - offset > 1800) continue;
+  const body = text.slice(offset + value.length, end);
+  const access = body.match(/let\{data:([A-Za-z_$][\w$]*),isPending:([A-Za-z_$][\w$]*)\}=[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*,[A-Za-z_$][\w$]*\),([A-Za-z_$][\w$]*)=!!([A-Za-z_$][\w$]*)\?\.isLoading\|\|([A-Za-z_$][\w$]*)&&\2,([A-Za-z_$][\w$]*);/);
+  if (!access || access[4] !== auth || access[5] !== allowed) continue;
+  const [, data, pending, loading, , , result] = access;
+  const conversion = body.match(/([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)&&!([A-Za-z_$][\w$]*)&&([A-Za-z_$][\w$]*)!=null\?[A-Za-z_$][\w$]*\(\4\):null/);
+  const returned = body.match(/\{serviceTierAccess:[A-Za-z_$][\w$]*,isLoading:([A-Za-z_$][\w$]*)\}/);
+  if (!conversion || conversion[1] !== result || conversion[2] !== allowed ||
+      conversion[3] !== loading || conversion[4] !== data || !returned || returned[1] !== loading) continue;
+  speedUiCandidates.push({offset, value, patched});
+}
+if (speedUiCandidates.length > 1) {
+  process.stderr.write('fast-ui-speed-access-target-ambiguous\n');
+  process.exit(2);
+}
+const speedUiMarkerCount = text.split('CODEX_SERVICE_TIER_ACCESS_UI_V1').length - 1;
+if (speedUiMarkerCount !== speedUiCandidates.filter(candidate => candidate.value === candidate.patched).length) {
+  process.stderr.write('fast-ui-speed-access-patch-incomplete\n');
+  process.exit(2);
+}
+if (speedUiCandidates.length === 1) {
+  const {offset, value, patched} = speedUiCandidates[0];
+  if (value === patched) {
+    process.stdout.write('already-patched');
+  } else {
+    fs.writeFileSync(file, text.slice(0, offset) + patched + text.slice(offset + value.length));
+    process.stdout.write('patched');
+  }
+  process.exit(0);
+}
 const constantPatchedRe = /let\{data:\w+,isPending:\w+\}=[^;]+,(\w+)=!1,(\w+)=!0,\w+;[\s\S]*?\{isServiceTierAllowed:\2,isLoading:\1\}/;
 if (constantPatchedRe.test(text)) {
   process.stdout.write('already-patched');
@@ -826,6 +944,14 @@ if (text.includes(marker)) {
 
 const visibilityPatterns = [
   {
+    // Desktop 26.1002 adds API-key access-program checks. Keep the denial
+    // branch outside the local visibility override.
+    re: /return (([$A-Za-z_][$\w]*)===`apikey`&&!([$A-Za-z_][$\w]*)&&([$A-Za-z_][$\w]*)!=null&&\4\.length>0&&!\4\.includes\(`standard`\)\?!1:)([$A-Za-z_][$\w]*)\?\.has\(([$A-Za-z_][$\w]*)\.model\)===!0\|\|\6\.model!==`codex-auto-review`&&\(([$A-Za-z_][$\w]*)&&!\6\.hidden\|\|\(([$A-Za-z_][$\w]*)&&!([$A-Za-z_][$\w]*)&&\2!==`amazonBedrock`\?([$A-Za-z_][$\w]*)\.has\(\6\.model\)\|\|\2===`apikey`&&\3&&!\6\.hidden&&\4\?\.some\(([$A-Za-z_][$\w]*)=>\11!==`standard`\)===!0:!\6\.hidden\)\)\}/,
+    modelGroup: 6,
+    accessGuardGroup: 1,
+    isReturn: true,
+  },
+  {
     re: /return ([$A-Za-z_][$\w]*)\?\.has\(([$A-Za-z_][$\w]*)\.model\)===!0\|\|\2\.model!==`codex-auto-review`&&\(([$A-Za-z_][$\w]*)&&!([$A-Za-z_][$\w]*)&&([$A-Za-z_][$\w]*)!==`amazonBedrock`\?([$A-Za-z_][$\w]*)\.has\(\2\.model\):!\2\.hidden\)\}/,
     modelGroup: 2,
     isReturn: true,
@@ -853,7 +979,7 @@ const visibilityPatterns = [
   },
 ];
 const target = visibilityPatterns
-  .map(({ re, modelGroup, isReturn }) => ({ match: text.match(re), modelGroup, isReturn }))
+  .map(({ re, modelGroup, isReturn, accessGuardGroup }) => ({ match: text.match(re), modelGroup, isReturn, accessGuardGroup }))
   .find(({ match }) => match != null);
 const match = target?.match;
 if (!match) {
@@ -865,8 +991,9 @@ const forced = JSON.stringify(models);
 const modelVar = match[target.modelGroup];
 let replacement;
 if (target.isReturn) {
-  const originalCondition = match[0].slice('return '.length, -1);
-  replacement = `return/*${marker}*/${forced}.includes(${modelVar}.model)||(${originalCondition})}`;
+  const accessGuard = target.accessGuardGroup ? match[target.accessGuardGroup] : '';
+  const originalCondition = match[0].slice('return '.length + accessGuard.length, -1);
+  replacement = `return ${accessGuard}/*${marker}*/${forced}.includes(${modelVar}.model)||(${originalCondition})}`;
 } else {
   const originalCondition = match[0].slice(3, -2);
   replacement = `if(/*${marker}*/${forced}.includes(${modelVar}.model)||(${originalCondition})){`;
@@ -1001,32 +1128,7 @@ if (!queryMatch) {
   process.stderr.write('ultra-user-settings-query-target-not-found\n');
   process.exit(2);
 }
-const parsedVar = queryHead[1];
-const bodyOpen = queryHead.index + queryHead[0].length - 1;
-let queryDepth = 0;
-let bodyClose = -1;
-for (let i = bodyOpen; i < next.length; i += 1) {
-  const ch = next[i];
-  if (ch === '{') {
-    queryDepth += 1;
-  } else if (ch === '}') {
-    queryDepth -= 1;
-    if (queryDepth === 0) {
-      bodyClose = i;
-      break;
-    }
-  }
-}
-if (bodyClose < 0) {
-  process.stderr.write('ultra-user-settings-query-body-unbalanced\n');
-  process.exit(2);
-}
-const querySuccessBody = next.slice(bodyOpen + 1, bodyClose);
-const ultraKeyLiteral = 'ultraEffortEnabled:' + parsedVar + '.settings?.model_picker_persists_ultra_effort===!0';
-if (!querySuccessBody.includes(ultraKeyLiteral)) {
-  process.stderr.write('ultra-user-settings-query-key-not-found\n');
-  process.exit(2);
-}
+const querySuccessBody = queryMatch[1];
 const queryReplacement = `queryFn:async()=>{try{${querySuccessBody}}catch{return{lockdownModeEnabled:!1,ultraEffortEnabled:await ${readConfig}(${settings}.showUltraInModelPickerSlider).catch(()=>!1)===!0,ultraEffortLocalFallback:!0/*${marker}*/}}}`;
 next = next.replace(queryRe, queryReplacement);
 }
@@ -1646,14 +1748,14 @@ function patchSidebarAvailability(file) {
 function patchDesktopFeatureSender(file) {
   const before = read(file);
   const patchedSenderFragment = 'inAppBrowserUse:!0,inAppBrowserUseAllowed:!0,browserPane:!0,externalBrowserUse:!0,externalBrowserUseAllowed:!0,computerUse:';
-  const patchedSenderPattern = /inAppBrowserUse:!0,(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:!0,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,10}?)browserPane:!0,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,8}?)externalBrowserUse:!0,externalBrowserUseAllowed:!0,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,6}?)computerUse:/;
+  const patchedSenderPattern = /inAppBrowserUse:!0,(?:dotBrowserUse:[^,}]+,)?(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:!0,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,10}?)browserPane:!0,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,8}?)externalBrowserUse:!0,externalBrowserUseAllowed:!0,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,6}?)computerUse:/;
   if (!before.includes('browser_use_availability_resolved') || !before.includes('electron-desktop-features-changed')) {
     process.stderr.write('browser-use-desktop-feature-sender-target-not-found\n');
     process.exit(2);
   }
 
   let after = before.replace(
-    /inAppBrowserUse:[^,}]+,(mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:[^,}]+,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,10}?)browserPane:[^,}]+,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,8}?)externalBrowserUse:[^,}]+,externalBrowserUseAllowed:[^,}]+,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,6}?)computerUse:/,
+    /inAppBrowserUse:[^,}]+,((?:dotBrowserUse:[^,}]+,)?(?:mcpAppsBrowserUse:[^,}]+,)?)inAppBrowserUseAllowed:[^,}]+,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,10}?)browserPane:[^,}]+,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,8}?)externalBrowserUse:[^,}]+,externalBrowserUseAllowed:[^,}]+,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,6}?)computerUse:/,
     'inAppBrowserUse:!0,$1inAppBrowserUseAllowed:!0,$2browserPane:!0,$3externalBrowserUse:!0,externalBrowserUseAllowed:!0,$4computerUse:'
   );
   after = after.replace(
@@ -1675,13 +1777,13 @@ function patchDesktopFeatureMain(file) {
   const patchedMainFragment = 'browserPane:!0,inAppBrowserUse:!0,inAppBrowserUseAllowed:!0,externalBrowserUse:!0,externalBrowserUseAllowed:!0';
   // Desktop 26.917 dropped `computerUseNodeRepl` from the env gate, so only the slot-shaped
   // feature object is rewritten and the legacy fragment above never appears on a re-run.
-  const patchedMainPattern = /inAppBrowserUse:!0,(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:!0,(?:[A-Za-z_$][\w$]*:[^,}]+,){0,10}?browserPane:!0,(?:[A-Za-z_$][\w$]*:[^,}]+,){0,8}?externalBrowserUse:!0,externalBrowserUseAllowed:!0,computerUse:/;
+  const patchedMainPattern = /inAppBrowserUse:!0,(?:dotBrowserUse:[^,}]+,)?(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:!0,(?:[A-Za-z_$][\w$]*:[^,}]+,){0,10}?browserPane:!0,(?:[A-Za-z_$][\w$]*:[^,}]+,){0,8}?externalBrowserUse:!0,externalBrowserUseAllowed:!0,computerUse:/;
   const envGatePattern = /([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)===`win32`&&([A-Za-z_$][\w$]*)\.CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE===`1`\?\{\.\.\.([A-Za-z_$][\w$]*),computerUse:!0,computerUseNodeRepl:!0\}:\4/;
   if (!before.includes(patchedMainFragment) &&
       !patchedMainPattern.test(before) &&
       (!before.includes('CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE') ||
        (!envGatePattern.test(before) &&
-        !/inAppBrowserUse:[A-Za-z_$][\w$]*\.inAppBrowserUse,(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:[A-Za-z_$][\w$]*\.inAppBrowserUseAllowed,(?:[A-Za-z_$][\w$]*:[^,}]+,){0,10}?browserPane:[A-Za-z_$][\w$]*\.browserPane,(?:[A-Za-z_$][\w$]*:[^,}]+,){0,8}?externalBrowserUse:[A-Za-z_$][\w$]*\.externalBrowserUse,externalBrowserUseAllowed:[A-Za-z_$][\w$]*\.externalBrowserUseAllowed/.test(before)))) {
+        !/inAppBrowserUse:[A-Za-z_$][\w$]*\.inAppBrowserUse,(?:dotBrowserUse:[^,}]+,)?(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:[A-Za-z_$][\w$]*\.inAppBrowserUseAllowed,(?:[A-Za-z_$][\w$]*:[^,}]+,){0,10}?browserPane:[A-Za-z_$][\w$]*\.browserPane,(?:[A-Za-z_$][\w$]*:[^,}]+,){0,8}?externalBrowserUse:[A-Za-z_$][\w$]*\.externalBrowserUse,externalBrowserUseAllowed:[A-Za-z_$][\w$]*\.externalBrowserUseAllowed/.test(before)))) {
     process.stderr.write('browser-use-desktop-feature-main-target-not-found\n');
     process.exit(2);
   }
@@ -1691,7 +1793,7 @@ function patchDesktopFeatureMain(file) {
     '$1=$2===`win32`?{...$4,browserPane:!0,inAppBrowserUse:!0,inAppBrowserUseAllowed:!0,externalBrowserUse:!0,externalBrowserUseAllowed:!0,...$3.CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE===`1`?{computerUse:!0,computerUseNodeRepl:!0}:{}}:$4'
   );
   after = after.replace(
-    /inAppBrowserUse:[A-Za-z_$][\w$]*\.inAppBrowserUse,(mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:[A-Za-z_$][\w$]*\.inAppBrowserUseAllowed,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,10}?)browserPane:[A-Za-z_$][\w$]*\.browserPane,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,8}?)externalBrowserUse:[A-Za-z_$][\w$]*\.externalBrowserUse,externalBrowserUseAllowed:[A-Za-z_$][\w$]*\.externalBrowserUseAllowed,computerUse:/,
+    /inAppBrowserUse:[A-Za-z_$][\w$]*\.inAppBrowserUse,((?:dotBrowserUse:[^,}]+,)?(?:mcpAppsBrowserUse:[^,}]+,)?)inAppBrowserUseAllowed:[A-Za-z_$][\w$]*\.inAppBrowserUseAllowed,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,10}?)browserPane:[A-Za-z_$][\w$]*\.browserPane,((?:[A-Za-z_$][\w$]*:[^,}]+,){0,8}?)externalBrowserUse:[A-Za-z_$][\w$]*\.externalBrowserUse,externalBrowserUseAllowed:[A-Za-z_$][\w$]*\.externalBrowserUseAllowed,computerUse:/,
     'inAppBrowserUse:!0,$1inAppBrowserUseAllowed:!0,$2browserPane:!0,$3externalBrowserUse:!0,externalBrowserUseAllowed:!0,computerUse:'
   );
 
@@ -1720,8 +1822,39 @@ const text = fs.readFileSync(file, 'utf8');
 const copyPatchedMarker = 'codex_windows_bundled_marketplace_copy_fallback';
 const sitesPatchedMarker = 'codex_windows_sites_bundled_plugin_available';
 const deepResearchPatchedMarker = 'codex_windows_deep_research_bundled_plugin_available';
+const imageGuidedAssetsPatchedMarker = 'codex_windows_image_guided_assets_bundled_plugin_available';
 let after = text;
 let changed = false;
+
+function patchOptionalAvailability(property, originalPredicate, marker) {
+  const identifier = '[A-Za-z_$][\\w$]*';
+  const prefix = `\\.\\.\\.${identifier}\\.${identifier}\\.${property},isAvailable:`;
+  const declarations = [...after.matchAll(new RegExp(prefix, 'g'))];
+  if (declarations.length === 0 && !after.includes(marker)) return;
+  const original = new RegExp(`${prefix}${originalPredicate}(?=})`, 'g');
+  const patched = new RegExp(`${prefix}\\(\\)=>!0/\\*${marker}\\*/,installWhenMissing:!1(?=})`, 'g');
+  const originalMatches = [...after.matchAll(original)];
+  const patchedMatches = [...after.matchAll(patched)];
+  const markerCount = after.split(marker).length - 1;
+  if (declarations.length !== 1 ||
+      (markerCount === 0 ? originalMatches.length !== 1 :
+        markerCount !== 1 || patchedMatches.length !== 1 || originalMatches.length !== 0)) {
+    process.stderr.write(`bundled-marketplace-${property}-availability-target-not-found-or-ambiguous\n`);
+    process.exit(2);
+  }
+  if (markerCount === 0) {
+    // Publish the optional entry without switching browser engines or installing it.
+    after = after.replace(original, () => `${declarations[0][0]}()=>!0/*${marker}*/,installWhenMissing:!1`);
+    changed = true;
+  }
+}
+
+patchOptionalAvailability('pullRequests',
+  '\\(\\{features:([A-Za-z_$][\\w$]*)\\}\\)=>\\1\\.codeReviewPlugin',
+  'codex_windows_code_review_bundled_plugin_available');
+patchOptionalAvailability('unifiedComputerUse',
+  '\\(\\{features:([A-Za-z_$][\\w$]*)\\}\\)=>\\1\\.browserUseTinysky&&\\(\\1\\.inAppBrowserUse\\|\\|\\1\\.externalBrowserUse\\|\\|\\1\\.computerUse\\)',
+  'codex_windows_unified_cua_bundled_plugin_available');
 
 const hasNativeWindowsCopyFallback =
   (after.includes('copyDirectoryAllowDecryptedDestinationOnEncryptionFailure') &&
@@ -1775,6 +1908,33 @@ if (!after.includes(deepResearchPatchedMarker)) {
     process.exit(2);
   }
   after = after.replace(deepResearchAvailabilityRe, `isAvailable:()=>!0/*${deepResearchPatchedMarker}*/`);
+  changed = true;
+}
+
+const imageGuidedAssetsIdentifier = '[A-Za-z_$][\\w$]*';
+const imageGuidedAssetsDeclarationRe = new RegExp(
+  `\\.\\.\\.${imageGuidedAssetsIdentifier}\\.${imageGuidedAssetsIdentifier}\\.imageGuidedAssets,`, 'g');
+const imageGuidedAssetsDeclarations = [...after.matchAll(imageGuidedAssetsDeclarationRe)];
+const imageGuidedAssetsPrefix =
+  `\\.\\.\\.${imageGuidedAssetsIdentifier}\\.${imageGuidedAssetsIdentifier}\\.imageGuidedAssets,autoInstallOptOutKey:[^,]+,isAvailable:`;
+const imageGuidedAssetsOriginalRe = new RegExp(
+  `(${imageGuidedAssetsPrefix})\\(\\{features:(${imageGuidedAssetsIdentifier})\\}\\)=>\\2\\.imageGuidedAssets(?=})`, 'g');
+const imageGuidedAssetsPatchedRe = new RegExp(
+  `${imageGuidedAssetsPrefix}\\(\\)=>!0/\\*${imageGuidedAssetsPatchedMarker}\\*/,installWhenMissing:!1(?=})`, 'g');
+const imageGuidedAssetsOriginalMatches = [...after.matchAll(imageGuidedAssetsOriginalRe)];
+const imageGuidedAssetsPatchedMatches = [...after.matchAll(imageGuidedAssetsPatchedRe)];
+const imageGuidedAssetsMarkerCount = after.split(imageGuidedAssetsPatchedMarker).length - 1;
+if (imageGuidedAssetsDeclarations.length === 0 && imageGuidedAssetsMarkerCount === 0) {
+  // Older Desktop builds do not ship this optional plugin.
+} else if (imageGuidedAssetsDeclarations.length !== 1 ||
+    (imageGuidedAssetsMarkerCount === 0 ? imageGuidedAssetsOriginalMatches.length !== 1 :
+      imageGuidedAssetsMarkerCount !== 1 || imageGuidedAssetsPatchedMatches.length !== 1 ||
+      imageGuidedAssetsOriginalMatches.length !== 0)) {
+  process.stderr.write('bundled-marketplace-image-guided-assets-availability-target-not-found-or-ambiguous\n');
+  process.exit(2);
+} else if (imageGuidedAssetsMarkerCount === 0) {
+  after = after.replace(imageGuidedAssetsOriginalRe,
+    (match, prefix) => `${prefix}()=>!0/*${imageGuidedAssetsPatchedMarker}*/,installWhenMissing:!1`);
   changed = true;
 }
 
@@ -1974,6 +2134,7 @@ function Test-CustomModelVisibilityExpression {
 
   # Keep target discovery aligned with the embedded Node patcher's supported predicate shapes.
   $patterns = @(
+    'return (([$A-Za-z_][$\w]*)===`apikey`&&!([$A-Za-z_][$\w]*)&&([$A-Za-z_][$\w]*)!=null&&\4\.length>0&&!\4\.includes\(`standard`\)\?!1:)([$A-Za-z_][$\w]*)\?\.has\(([$A-Za-z_][$\w]*)\.model\)===!0\|\|\6\.model!==`codex-auto-review`&&\(([$A-Za-z_][$\w]*)&&!\6\.hidden\|\|\(([$A-Za-z_][$\w]*)&&!([$A-Za-z_][$\w]*)&&\2!==`amazonBedrock`\?([$A-Za-z_][$\w]*)\.has\(\6\.model\)\|\|\2===`apikey`&&\3&&!\6\.hidden&&\4\?\.some\(([$A-Za-z_][$\w]*)=>\11!==`standard`\)===!0:!\6\.hidden\)\)\}',
     'if\([$A-Za-z_][$\w]*\?[$A-Za-z_][$\w]*\.has\((?<model>[$A-Za-z_][$\w]*)\.model\):!\k<model>\.hidden\)\{',
     'if\([$A-Za-z_][$\w]*\?\.has\((?<model>[$A-Za-z_][$\w]*)\.model\)===!0\|\|\([$A-Za-z_][$\w]*\?[$A-Za-z_][$\w]*\.has\(\k<model>\.model\):!\k<model>\.hidden\)\)\{',
     '\?\.has\(\w+\.model\)===!0\|\|\(\w+(?:&&\w+!==`amazonBedrock`)?\?\w+\.has\(\w+\.model\):!\w+\.hidden\)',
@@ -1986,6 +2147,19 @@ function Test-CustomModelVisibilityExpression {
     }
   }
   return $false
+}
+
+function Test-FastModeRequestTargetText {
+  param([string]$Text)
+  if ($Text.Contains('featureRequirements?.fast_mode')) { return $true }
+  return $Text -match 'async function ([$A-Za-z_][$\w]*)\(([$A-Za-z_][$\w]*),([$A-Za-z_][$\w]*)\)\{let ([$A-Za-z_][$\w]*)=await ([$A-Za-z_][$\w]*)\(\2,\3\);(?:if\(\4!==`chatgpt`&&\4!==`personalAccessToken`(?:&&\4!==`amazonBedrock`)?\)return null;)?let ([$A-Za-z_][$\w]*)=await ([$A-Za-z_][$\w]*)\(\2,\3,\{priority:`critical`\}\);return \2\.query\.setData\(([$A-Za-z_][$\w]*),\{authMethod:\4,hostId:\3\},\6\),([$A-Za-z_][$\w]*)\(\6\)\}'
+}
+
+function Test-ServiceTierAccessUiTargetText {
+  param([string]$Text)
+  return $Text.Contains('serviceTierAccess:') -and
+    $Text -match '\?\.authMethod===`chatgpt`\|\|[$A-Za-z_][$\w]*\?\.authMethod===`personalAccessToken`|/\*CODEX_SERVICE_TIER_ACCESS_UI_V1\*/!0' -and
+    $Text -match 'let\{data:([$A-Za-z_][$\w]*),isPending:([$A-Za-z_][$\w]*)\}=[$A-Za-z_][$\w]*\([$A-Za-z_][$\w]*,[$A-Za-z_][$\w]*\),([$A-Za-z_][$\w]*)=!![$A-Za-z_][$\w]*\?\.isLoading\|\|[$A-Za-z_][$\w]*&&\2,[$A-Za-z_][$\w]*;'
 }
 
 function Find-PatchTargets {
@@ -2002,7 +2176,7 @@ function Find-PatchTargets {
   $fastModeTarget = $null
   foreach ($candidate in (Get-ChildItem -LiteralPath $assetsDir -Filter 'read-service-tier-for-request-*.js' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)) {
     $text = Get-Content -Raw -LiteralPath $candidate
-    if ($text.Contains('featureRequirements?.fast_mode')) {
+    if (Test-FastModeRequestTargetText $text) {
       $fastModeTarget = $candidate
       break
     }
@@ -2010,7 +2184,7 @@ function Find-PatchTargets {
   if ([string]::IsNullOrWhiteSpace($fastModeTarget)) {
     foreach ($candidate in (Invoke-RgList $RgPath 'Failed to read service tier for request' $assetsDir)) {
       $text = Get-Content -Raw -LiteralPath $candidate
-      if ($text.Contains('featureRequirements?.fast_mode')) {
+      if (Test-FastModeRequestTargetText $text) {
         $fastModeTarget = $candidate
         break
       }
@@ -2029,10 +2203,11 @@ function Find-PatchTargets {
   if ([string]::IsNullOrWhiteSpace($fastModeUiTarget)) {
     foreach ($candidate in (Get-ChildItem -LiteralPath $assetsDir -Filter 'app-initial-*.js' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)) {
       $text = Get-Content -Raw -LiteralPath $candidate
-      if ($text.Contains('isServiceTierAllowed') -and
+      if ((Test-ServiceTierAccessUiTargetText $text) -or
+          ($text.Contains('isServiceTierAllowed') -and
           $text.Contains('featureRequirements?.fast_mode') -and
           (($text -match '=!!\w+\?\.isLoading\|\|\w+&&\w+,\w+=\w+&&!\w+&&\w+!=null&&\w+\?\.requirements\?\.featureRequirements\?\.fast_mode!==!1') -or
-           ($text -match '=!!\w+\?\.isLoading\|\|\w+,\w+=!\w+&&\w+!=null&&\w+\?\.requirements\?\.featureRequirements\?\.fast_mode!==!1'))) {
+           ($text -match '=!!\w+\?\.isLoading\|\|\w+,\w+=!\w+&&\w+!=null&&\w+\?\.requirements\?\.featureRequirements\?\.fast_mode!==!1')))) {
         $fastModeUiTarget = $candidate
         break
       }
@@ -2150,8 +2325,8 @@ function Find-PatchTargets {
   foreach ($candidate in $desktopFeatureSenderCandidates) {
     $text = Get-Content -Raw -LiteralPath $candidate
     if ($text.Contains('electron-desktop-features-changed') -and
-        (($text -match 'inAppBrowserUse:[^,}]+,(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:[^,}]+,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?browserPane:[^,}]+,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?externalBrowserUse:[^,}]+,externalBrowserUseAllowed:[^,}]+,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?computerUse:[^,}]+') -or
-         ($text -match 'inAppBrowserUse:!0,(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:!0,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?browserPane:!0,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?externalBrowserUse:!0,externalBrowserUseAllowed:!0'))) {
+        (($text -match 'inAppBrowserUse:[^,}]+,(?:dotBrowserUse:[^,}]+,)?(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:[^,}]+,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?browserPane:[^,}]+,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?externalBrowserUse:[^,}]+,externalBrowserUseAllowed:[^,}]+,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?computerUse:[^,}]+') -or
+         ($text -match 'inAppBrowserUse:!0,(?:dotBrowserUse:[^,}]+,)?(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:!0,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?browserPane:!0,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?externalBrowserUse:!0,externalBrowserUseAllowed:!0'))) {
       $desktopFeatureSenderTarget = $candidate
       break
     }
@@ -2167,9 +2342,9 @@ function Find-PatchTargets {
       $text = Get-Content -Raw -LiteralPath $candidate
       if ($text.Contains('CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE') -and
           (($text -match '([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)===`win32`&&([A-Za-z_$][\w$]*)\.CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE===`1`\?\{\.\.\.([A-Za-z_$][\w$]*),computerUse:!0,computerUseNodeRepl:!0\}:\4') -or
-           ($text -match 'inAppBrowserUse:[A-Za-z_$][\w$]*\.inAppBrowserUse,(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:[A-Za-z_$][\w$]*\.inAppBrowserUseAllowed,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?browserPane:[A-Za-z_$][\w$]*\.browserPane,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?externalBrowserUse:[A-Za-z_$][\w$]*\.externalBrowserUse,externalBrowserUseAllowed:[A-Za-z_$][\w$]*\.externalBrowserUseAllowed') -or
+           ($text -match 'inAppBrowserUse:[A-Za-z_$][\w$]*\.inAppBrowserUse,(?:dotBrowserUse:[^,}]+,)?(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:[A-Za-z_$][\w$]*\.inAppBrowserUseAllowed,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?browserPane:[A-Za-z_$][\w$]*\.browserPane,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?externalBrowserUse:[A-Za-z_$][\w$]*\.externalBrowserUse,externalBrowserUseAllowed:[A-Za-z_$][\w$]*\.externalBrowserUseAllowed') -or
            $text.Contains('browserPane:!0,inAppBrowserUse:!0,inAppBrowserUseAllowed:!0,externalBrowserUse:!0,externalBrowserUseAllowed:!0') -or
-           ($text -match 'inAppBrowserUse:!0,(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:!0,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?browserPane:!0,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?externalBrowserUse:!0,externalBrowserUseAllowed:!0,computerUse:'))) {
+           ($text -match 'inAppBrowserUse:!0,(?:dotBrowserUse:[^,}]+,)?(?:mcpAppsBrowserUse:[^,}]+,)?inAppBrowserUseAllowed:!0,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?browserPane:!0,(?:[A-Za-z_$][\w$]*:[^,}]+,)*?externalBrowserUse:!0,externalBrowserUseAllowed:!0,computerUse:'))) {
         $desktopFeatureMainTarget = $candidate
         break
       }
@@ -2483,7 +2658,11 @@ function Invoke-PatchAppAsar {
     [string]$WorkDir
   )
   $asarPath = Join-Path $WorkAppPath 'resources\app.asar'
-  $extractDir = Join-Path $WorkDir 'asar-extracted'
+  # Keep the extracted ASAR path short enough for Windows PowerShell 5.1.
+  # Store package bundles include hashed asset names; under the recoverable
+  # installer output root the old `asar-extracted` name could push a target
+  # past MAX_PATH before the Node patcher had a chance to read it.
+  $extractDir = Join-Path $WorkDir 'asar'
   $newAsarPath = Join-Path $WorkDir 'app.asar'
   $rgPath = Join-Path $WorkAppPath 'resources\rg.exe'
   if (-not (Test-Path -LiteralPath $rgPath)) {
@@ -2501,7 +2680,42 @@ function Invoke-PatchAppAsar {
   Invoke-NpxAsar 'extract' $asarPath $extractDir
   $patchers = Write-PatcherFiles $WorkDir
 
-  if ($OnlyComputerUseSurface) {
+  $proxyResult = $null
+  if ($OnlyNodeReplProxyEnv -or $OnlyComputerUseSurfaceAndProxyEnv) {
+    $viteBuildDir = Join-Path $extractDir '.vite\build'
+    $proxyTargets = @(Get-ChildItem -LiteralPath $viteBuildDir -Filter '*.js' -File | Where-Object {
+      $content = [IO.File]::ReadAllText($_.FullName)
+      $content.Contains('NODE_REPL_NODE_MODULE_DIRS') -and
+        $content.Contains('NODE_REPL_TRUSTED_CODE_PATHS') -and
+        $content.Contains('CODEX_WINDOWS_REGISTERED_CORE') -and
+        ($content.Contains('CODEX_NODE_REPL_PROXY_ENV_V1') -or
+         $content -match 'let ([A-Za-z_$][\w$]*)=`CODEX_WINDOWS_REGISTERED_CORE`;([A-Za-z_$][\w$]*)=\[\.\.\.new Set\(\[\.\.\.([A-Za-z_$][\w$]*),\1\]\)\];')
+    })
+    if ($proxyTargets.Count -ne 1) {
+      Fail "expected exactly one Node REPL proxy environment target; found $($proxyTargets.Count)"
+    }
+    $proxyTarget = $proxyTargets[0].FullName
+    Write-Log "Node REPL proxy environment patch target: $proxyTarget"
+    $proxyResult = Invoke-NodePatcher $nodePath (Join-Path $PSScriptRoot 'patch-node-repl-proxy-env.cjs') @($proxyTarget)
+    if ($proxyResult -notin @('patched', 'already-patched')) { Fail "unexpected proxy environment patch result: $proxyResult" }
+    Write-Log "Node REPL proxy environment patch result: $proxyResult"
+    & $nodePath --check $proxyTarget
+    if ($LASTEXITCODE -ne 0) { Fail 'Node REPL proxy environment asset failed node --check' }
+    Write-Log 'Node REPL proxy environment asset syntax check passed'
+    if ($DryRun -and -not $OnlyComputerUseSurfaceAndProxyEnv) {
+      Write-Log 'dry run: proxy environment target validation completed; no package was changed'
+      return $false
+    }
+    if (-not $OnlyComputerUseSurfaceAndProxyEnv) {
+      if ($proxyResult -eq 'already-patched') { return $false }
+      Write-Log 'repacking app.asar'
+      Invoke-NpxAsar 'pack' $extractDir $newAsarPath
+      Copy-Item -LiteralPath $newAsarPath -Destination $asarPath -Force
+      return $true
+    }
+  }
+
+  if ($OnlyComputerUseSurface -or $OnlyComputerUseSurfaceAndProxyEnv) {
     $computerUseSurfaceTarget = Find-ComputerUseSurfaceTarget $extractDir
 
     Write-Log "Windows CUA surface patch target: $computerUseSurfaceTarget"
@@ -2517,7 +2731,7 @@ function Invoke-PatchAppAsar {
       Write-Log 'dry run: Windows CUA surface target validation completed; no package was changed'
       return $false
     }
-    if ($computerUseSurface -eq 'already-patched') {
+    if ($computerUseSurface -eq 'already-patched' -and $proxyResult -ne 'patched') {
       Write-Log 'asar Windows CUA surface patch already present'
       return $false
     }
@@ -2532,7 +2746,7 @@ function Invoke-PatchAppAsar {
     $fastModeTarget = $null
     foreach ($candidate in (Get-ChildItem -LiteralPath $assetsDir -Filter 'read-service-tier-for-request-*.js' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)) {
       $text = Get-Content -Raw -LiteralPath $candidate
-      if ($text.Contains('featureRequirements?.fast_mode')) {
+      if (Test-FastModeRequestTargetText $text) {
         $fastModeTarget = $candidate
         break
       }
@@ -2540,7 +2754,7 @@ function Invoke-PatchAppAsar {
     if ([string]::IsNullOrWhiteSpace($fastModeTarget)) {
       foreach ($candidate in (Invoke-RgList $rgPath 'Failed to read service tier for request' $assetsDir)) {
         $text = Get-Content -Raw -LiteralPath $candidate
-        if ($text.Contains('featureRequirements?.fast_mode')) {
+        if (Test-FastModeRequestTargetText $text) {
           $fastModeTarget = $candidate
           break
         }
@@ -2563,10 +2777,11 @@ function Invoke-PatchAppAsar {
     if ([string]::IsNullOrWhiteSpace($fastModeUiTarget)) {
       foreach ($candidate in (Get-ChildItem -LiteralPath $assetsDir -Filter 'app-initial-*.js' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)) {
         $text = Get-Content -Raw -LiteralPath $candidate
-        if ($text.Contains('isServiceTierAllowed') -and
+        if ((Test-ServiceTierAccessUiTargetText $text) -or
+            ($text.Contains('isServiceTierAllowed') -and
             $text.Contains('featureRequirements?.fast_mode') -and
             (($text -match '=!!\w+\?\.isLoading\|\|\w+&&\w+,\w+=\w+&&!\w+&&\w+!=null&&\w+\?\.requirements\?\.featureRequirements\?\.fast_mode!==!1') -or
-             ($text -match '=!!\w+\?\.isLoading\|\|\w+,\w+=!\w+&&\w+!=null&&\w+\?\.requirements\?\.featureRequirements\?\.fast_mode!==!1'))) {
+             ($text -match '=!!\w+\?\.isLoading\|\|\w+,\w+=!\w+&&\w+!=null&&\w+\?\.requirements\?\.featureRequirements\?\.fast_mode!==!1')))) {
           $fastModeUiTarget = $candidate
           break
         }
@@ -3039,6 +3254,8 @@ function Add-LocalMarketplace {
 function Patch-ChromePluginWindowsRegistryParsing {
   param([string]$WorkApp)
 
+  if ($OnlyComputerUseSurfaceAndProxyEnv) { return 'skipped-targeted-computer-use-surface-and-proxy-env' }
+  if ($OnlyNodeReplProxyEnv) { return 'skipped-targeted-node-repl-proxy-env' }
   if ($OnlyComputerUseSurface) {
     return 'skipped-targeted-computer-use-surface'
   }
@@ -3457,7 +3674,12 @@ $workRoot = Join-Path $OutputRoot $packageShortId
 $workPackageRoot = Join-Path $workRoot 'package'
 $workApp = Join-Path $workPackageRoot 'app'
 $artifactsDir = Join-Path $workRoot 'artifacts'
-$tempWork = Join-Path $workRoot ('work-' + [guid]::NewGuid().ToString('N'))
+$tempWorkRoot = if ([string]::IsNullOrWhiteSpace($AsarWorkRoot)) {
+  Join-Path $env:TEMP 'codex-msix-work'
+} else {
+  [IO.Path]::GetFullPath($AsarWorkRoot)
+}
+$tempWork = Join-Path $tempWorkRoot ('w-' + [guid]::NewGuid().ToString('N').Substring(0, 16))
 $msixPath = Join-Path $artifactsDir ($packageShortId + '_patched.msix')
 
 Write-Log "source app: $sourceApp"
@@ -3472,6 +3694,11 @@ New-Item -ItemType Directory -Force -Path $artifactsDir | Out-Null
 New-Item -ItemType Directory -Force -Path $tempWork | Out-Null
 
 try {
+  # Resolve packaging tools before copying and patching a large package tree.
+  if (-not $DryRun) {
+    $makeappx = Require-WindowsSdkTool 'makeappx.exe'
+    $signtool = Require-WindowsSdkTool 'signtool.exe'
+  }
   Copy-PackageLayout $sourcePackageRoot $workPackageRoot
   Remove-OldPackageArtifacts $workPackageRoot
 
@@ -3479,7 +3706,7 @@ try {
   Write-Log "Chrome localized registry parsing patch result: $chromeRegistryParsing"
 
   # Validate the runtime inside the package copy before it can enter an MSIX.
-  if (-not ($OnlyBundledMarketplaceCopy -or $OnlyComputerUseSurface -or $OnlyModelExperience)) {
+  if (-not ($OnlyBundledMarketplaceCopy -or $OnlyComputerUseSurface -or $OnlyNodeReplProxyEnv -or $OnlyComputerUseSurfaceAndProxyEnv -or $OnlyModelExperience)) {
     $stagedNodeModules = Join-Path $workApp 'resources\cua_node\bin\node_modules'
     $entryInstructions = Repair-WindowsCuaEntryInstructions -NodeModulesRoot $stagedNodeModules
     Write-Log "Windows CUA entry instructions patch result: $entryInstructions"
@@ -3503,8 +3730,6 @@ try {
     Write-Log "app.asar header sha256: $(Get-AsarHeaderSha256 $asar)"
     Update-ElectronAsarIntegrity $workApp
 
-    $makeappx = Require-WindowsSdkTool 'makeappx.exe'
-    $signtool = Require-WindowsSdkTool 'signtool.exe'
     $publisher = Get-ManifestPublisher $workPackageRoot
     $cert = Get-OrCreateSigningCertificate $publisher
     Trust-SigningCertificate $cert
@@ -3537,7 +3762,7 @@ try {
   if ($KeepWorkDir) {
     Write-Log "keeping workdir: $tempWork"
   } elseif (Test-Path -LiteralPath $tempWork) {
-    Remove-DirectoryRobust -Path $tempWork -RequiredRoot $workRoot -BestEffort
+    Remove-DirectoryRobust -Path $tempWork -RequiredRoot $tempWorkRoot -BestEffort
   }
 }
 

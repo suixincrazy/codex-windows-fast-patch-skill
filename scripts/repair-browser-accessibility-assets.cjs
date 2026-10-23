@@ -26,11 +26,16 @@ function writable(file, sources) {
 }
 function collect(options) {
   const { installedMarketplaceRoot: installed, marketplaceRoot: mirror, codexHomeRoot: home, runtime } = options;
+  for (const root of [installed, mirror, home]) {
+    if (typeof root !== 'string' || !path.isAbsolute(root)) throw new Error('AX roots must be absolute paths');
+  }
+  if (!fs.existsSync(installed) || !fs.statSync(installed).isDirectory()) throw new Error('Packaged marketplace directory missing');
   const groups = [];
   for (const plugin of ['browser', 'chrome']) {
     const dir = path.join(installed, 'plugins', plugin);
     const descriptor = path.join(dir, '.codex-plugin', 'plugin.json');
-    if (!fs.existsSync(descriptor)) continue;
+    if (!fs.existsSync(dir)) continue;
+    if (!fs.existsSync(descriptor)) throw new Error(`Missing packaged AX plugin descriptor: ${dir}`);
     const version = json(descriptor).version;
     if (typeof version !== 'string' || !/^[0-9A-Za-z][0-9A-Za-z._-]*$/.test(version)) throw new Error(`Invalid ${plugin} version`);
     const service = read(path.join(dir, 'scripts', SERVICE));
@@ -63,6 +68,7 @@ function collect(options) {
       const service = read(path.join(dir, 'scripts', SERVICE));
       if (!service) throw new Error('Missing packaged browser-desktop service');
       if (service.includes(ASSET)) {
+        if (!Array.isArray(runtime.bins) || runtime.bins.length === 0) throw new Error('No selected AX runtime targets');
         const targets = [...new Set(runtime.bins)].map(bin => path.join(bin, relative, 'scripts', ASSET));
         groups.push({ kind: 'runtime', source: path.join(dir, 'scripts', ASSET), targets });
       }
