@@ -487,3 +487,15 @@ The independent thirteen-region rewrite changes 552 bytes without changing file 
 Desktop `26.928.3736.0` (internal version `26.928.31416`) ships the `0.7.5-0D00DFDA` helper. All ten section headers and raw section bodies match the preceding `0.7.5` helpers; only two checksum bytes and the certificate overlay differ from `25D792D0`. Its separate complete-hash profile retains the thirteen guarded regions and unwind-aware MTA wrapper. Candidate, install, idempotence, rollback, backup-preservation and unknown-input checks passed, as did 47 native unwind boundaries and ten live caller frames on the actual user-runtime helper.
 
 Installed Desktop `26.928.3736.3` and its user runtime share the recorded patched helper hash. Fresh Desktop CUA calls returned two independently captured, visually inspected `1125x719` Explorer frames, accepted F5 input and a Performance-tab coordinate click, then returned three visually inspected `666x593` Task Manager frames with changing CPU charts and advancing uptime. These are contributor-reported finite observations; both installed-validation fields remain null pending independent confirmation, and it does not establish a long-duration soak or language-level exception dispatch.
+
+### `@oai/sky 0.7.12` helpers / Desktop 26.1016
+
+Store builds `26.1016.6573.0`, `26.1016.8120.0` and `26.1016.8622.0` contain distinct signed helpers with identical ten PE section bodies and the existing thirteen capture/unwind regions. Each profile guards its own checksum/certificate bytes and complete input/output hashes:
+
+| Profile | Original SHA-256 | Candidate SHA-256 |
+| --- | --- | --- |
+| `0.7.12-6FCC7C64` | `6FCC7C6482DFD9B8E0CFC07F55B89D526779948B9B3EDA30EB2495573A36CC08` | `7C4DC7060A6081506C1614EA0831523EF1D68201CF34E6BD7DE7FB787D63DFA2` |
+| `0.7.12-A8533C3D` | `A8533C3D5F12114ABA5DB329AA2F591BDB66A8DE6C9741F436940158042D53AB` | `40B6ED3F0534EF1BF9D9F79ADF13365ECD75DF5DDE387D8A1F0287ED72338FE8` |
+| `0.7.12-AA6EB7E9` | `AA6EB7E98D62888495F002168C3249D694912A81A029F32A1473F07E52B51679` | `02469CD31ABF82544A9EF21139C8302266CA4CAEF13D864D49C81C637D0AE326` |
+
+Run `test-computer-use-helper-win10-patch.ps1 -SkyVersion <profile> -HelperPath <preserved-original>` for candidate, guarded install, idempotence, rollback, backup preservation and unknown-input checks. The Windows 11 install guard remains in force. `ValidatedDesktopVersion` and `EndToEndValidatedDesktopVersion` remain null: contributor-reported current-Desktop capture/input samples are separate from independent full Windows 10 acceptance and a resource soak.
