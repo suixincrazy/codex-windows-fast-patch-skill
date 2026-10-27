@@ -145,6 +145,7 @@ ASAR 解包和打包优先复用 npm 缓存中可运行的本地工具，不依�
 | --- | --- |
 | 完整执行流程、参数和备份操作 | [SKILL.md](SKILL.md)，供智能体与维护者按需查阅 |
 | 模型、浏览器、插件或安装故障 | [常见问题排查](references/restriction-debug-cases.md) |
+| dots 新入口缺失、账号与云端访问条件 | [dots 只读诊断](references/dots-diagnostics.md)，不包含云端资格解锁 |
 | 手机远控的授权、配对和 API 问题 | [手机远控排查](references/remote-control-debug-cases.md) |
 | Win10 截图的适用版本与验证范围 | [Win10 截图兼容说明](references/win10-computer-use-screenshot-backend.md) |
 | 本机是 Win11，如何分析和验证 Win10 截图问题 | [Win10 客体与独立验证工具](references/win10-validation-on-win11.md) |

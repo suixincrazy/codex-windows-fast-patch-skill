@@ -146,6 +146,7 @@ ASAR extraction and packing first reuse a working CLI already installed in the n
 | --- | --- |
 | Complete workflows, parameters, and backup commands | [SKILL.md](SKILL.md), the on-demand guide for agents and maintainers |
 | Model, browser, plugin, or installation troubleshooting | [Troubleshooting cases](references/restriction-debug-cases.md) |
+| Missing dots entry, account and cloud access requirements | [Read-only dots diagnostics](references/dots-diagnostics.md); does not unlock cloud eligibility |
 | Phone authorization, pairing, and API issues | [Phone remote-control troubleshooting](references/remote-control-debug-cases.md) |
 | Supported Windows 10 screenshot profiles and validation scope | [Windows 10 screenshot compatibility](references/win10-computer-use-screenshot-backend.md) |
 | Investigating Windows 10 capture from a Windows 11 host | [Windows 10 guest and isolated diagnostic](references/win10-validation-on-win11.md) |
