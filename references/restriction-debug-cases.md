@@ -794,6 +794,91 @@ Run `scripts/test-service-tier-access-patterns.ps1 -TemporaryRoot <D-drive-test-
 
 Desktop `26.1016.6573.0` and `26.1016.8120.0` add `amazonBedrock` as a third recognized authentication mode in both complete service-tier access conditions. The request matcher accepts that optional third comparison only for the same auth local, and the UI matcher accepts either complete two- or three-mode condition followed by the assignment delimiter. Unknown extra conditions, mismatched locals, mixed targets and partial markers are rejected. The shared requirements converter, independent Fast/Ultrafast restrictions, cache arguments and React loading/memo behavior remain unchanged. Run the same two regression suites with the current unmodified asset before the full package dry run.
 
+## Post-update checks and browser split-config targeting
+
+For subsequent updates, use the repository's `scripts/codex-after-update.ps1`
+to distinguish an unverified replacement package from plugin version drift or
+pending acceptance. `-CheckApp` diagnoses the current complete non-phone bundle;
+repair switches are explicit. The launcher resolves models from active
+model/list rather than reverting to old hard-coded model names. See
+`references/post-update-verification.md` for the status contract.
+
+### Browser split-config patch hits a neighboring Computer Use hook
+
+On the installed `26.1023.6621.1` merged app-initial asset, the earlier V3
+in-app config regex matched Computer Use's preceding authMethod-shaped local
+declaration. A browser config marker existed there while the actual browser
+hook still read its original config; another patch run then changed the real
+browser hook. Marker presence and first-run `patched` were therefore insufficient
+to prove a complete, stable browser patch.
+
+The V3 match now binds `featureName:browser_use` or `browser_use_external` to
+its exact options local and corresponding config call. Scoped duplicates and
+mismatched locals are rejected; a historical marker in a neighboring function
+does not hide the missing browser target. Browser hook tests include that
+neighbor unchanged, both configs repaired in one pass, repeat-run stability,
+duplicates, mismatched locals and the exact installed asset. This is a source
+and static-asset improvement; it does not claim a new Desktop deployment.
+
+## Native Desktop 26.1023 hides Ultra after model/list
+
+On Store package `26.1023.6621.0`, the catalog and `model/list` can advertise
+`ultra`, `priority`, and `ultrafast` while Desktop hides those controls. Fast
+still needs the request/UI authentication repair. Native Ultra no longer uses
+the historical account-settings slider hook: the model query in `app-initial`
+and the host capability initialization separately consult gate `1186680773`.
+
+The native Ultra patch recognizes both complete call sites before writing. For
+custom providers only, it admits the catalog's Ultra capability while preserving
+the caller's include-Ultra value, enabled reasoning efforts, model capabilities,
+and the official provider gate. Both sites must be pristine or both patched;
+duplicates, unknown conditions, missing peers and partial markers are rejected.
+Run `scripts/test-native-ultra-reasoning.ps1 -TemporaryRoot <local-test-root>
+-CurrentAssetsDir <original-assets-directory>` and a full dry run. Successful
+fixture and syntax checks are separate from installed Desktop acceptance.
+
+The local `26.1023.6621.0 -> 26.1023.6621.1` deployment completed with
+`verified-complete`: exact-package Desktop window launch, installed ASAR
+integrity, both native Ultra markers, default `gpt-6.1-sol` model/list tiers
+`priority,ultrafast`, and a captured request containing `service_tier=priority`.
+All eight publishable bundled plugins passed strict version/runtime checks;
+fresh Desktop native enumeration returned four windows, and Chrome plus the
+in-app browser read public HTTPS page titles and meaningful AX content. The
+persisted locale was `zh-CN`. Mode/language menus were not directly operated or
+visually checked; native screenshot/input and upstream Ultrafast scheduling
+were not exercised. Successful-run build/recovery artifacts were removed after
+acceptance, with configuration backups and logs retained.
+
+## Recoverable preparation fails on a harmless npm warning
+
+Under Windows PowerShell 5.1, capturing a patcher with `2>&1` while
+`ErrorActionPreference=Stop` can convert `npm warn deprecated asar@3.2.0` into
+a terminating error before any deployment. The recoverable runner prepares the
+package in a hidden independent PowerShell process with separate stdout/stderr
+files and checks its actual exit code. `test-package-preparation-transport.ps1`
+verifies warning preservation, nonzero exit rejection, arrays, booleans and
+paths. Model-list probe transport and post-install runtime refresh reuse the
+reviewed upstream PR #112 behavior; that PR's unrelated Edge changes are not
+required for this local Chrome setup.
+
+## Store update leaves old reserved marketplace and installed plugin versions
+
+The stable mirror can match a new package while Desktop's actual
+`.tmp/bundled-marketplaces/openai-bundled` descriptors and CLI installed version
+records still refer to the preceding build. On `26.1023.6621.0` this mixed
+`26.1023.50603` and `26.1023.51421`, left unified Computer Use referencing a
+removed runtime, and caused full plugin verification to fail.
+
+The local repair synchronizes only already published, publishable reserved
+mirror entries from the installed package, with backups. It then upgrades only
+already installed stale plugin records. A disabled plugin remains disabled,
+including when registration fails; unrelated TOML keys are preserved and
+optional plugins are not installed. Require `test-bundled-plugin-upgrade-repair.ps1`,
+`test-bundled-plugin-version-drift.ps1`, and a post-restart
+`-StrictVerifyOnly -VerifyAllBundledPluginsAvailable` pass. The mirror inventory,
+CLI records, runtime initialization, and actual Desktop browser/native readiness
+are distinct acceptance checks.
+
 ## Model Picker Shows Only One Fast Level (Missing Ultrafast Tier)
 
 Symptoms:
@@ -950,6 +1035,14 @@ The Power slider moved into `app-primary` and no longer carries `harborEnabled` 
 
 Run `test-computer-use-surface-patterns.ps1` and `test-native-layout-discovery.ps1 -TemporaryRoot <local-test-root> -CurrentExtractDir <extracted-asar>`. The latter reads the current asset set and checks the native slider remains byte-identical. These checks and a full DryRun establish compatibility of the selected bundle; installed-package and runtime acceptance remain separate.
 
+## Desktop 26.1027 Splits the Main Bundle and Yoda-Minifies the Gates
+
+On the exact Store package `26.1027.3384.0`, `.vite\build` no longer ships `main-*.js`; the Electron main code lives in `early-bootstrap.js` plus numbered `early-bootstrap-<n>-<hash>.js` chunks. The minifier reverses string comparisons and double-quotes literals. Windows CUA is still native (`h=u&&t.computerUse&&c.enabled&&("win32"===o.platform||"darwin"===o.platform&&null!=c.paths.serviceAppPath)`), the plugin exposure guard becomes `if(!r.installed||null==n||i&&"darwin"!==e.platform)return null;`, and the shared readiness predicate uses `null!=`, `(0,ns.JFB)(e,"mcpToolExposure")` and `"AVAILABLE"===s.plugin.availability`. Discovery and the embedded surface patcher accept both quoting styles and still report `already-open-native-windows` without rewriting the asset. A Yoda-shaped bundle without the native Windows branch fails closed instead of being patched. `NODE_REPL_TRUSTED_CODE_PATHS` and `CODEX_WINDOWS_REGISTERED_CORE` are double-quoted for the same reason.
+
+This build also retires the `sites` bundled plugin: the package marketplace ships eight descriptors and only the uninstall helper remains, in the reversed form `null!=t&&"object"==typeof t&&...Object.hasOwn(t,"sites@openai-bundled")`. The native Windows copy fallback survives but loads through a lazy chunk (`r.e(523).then(r.bind(r,9496))`) with no `windows-file-copy-` filename, so detection must also accept `"win32"!==X().platform)return void await Y().cp(...)`.
+
+The fixture suite adds a recognized native case, a refused Darwin-only Yoda variant, and idempotent repeats. On `26.1027.3384.0` the full DryRun reports `already-open-native-windows` and `patched` for every remaining gate.
+
 ## CUA Requests Time Out After Proxy Variables Are Removed
 
 On Desktop `26.915.4065.0`, native app enumeration can work and Chrome can connect while tab creation or listing fails with `nodeRepl.fetch request failed`. Compare the actual `cua_repl` child process environment with its app-server parent. Checking `codex-computer-use-swift.exe` alone does not test the process that performs the request.
@@ -961,6 +1054,16 @@ Use `python scripts/probe-node-repl-proxy-env.py --pid <root-pid> --pid <current
 When the root has the required proxy but its native CUA child loses it, run `scripts/patch_codex_fast_mode_windows_msix.ps1 -OnlyNodeReplProxyEnv -DryRun`. If both the native CUA surface and proxy inheritance are broken, use `-OnlyComputerUseSurfaceAndProxyEnv -DryRun`. These opt-in modes patch only their selected ASAR targets and reject unrelated repair switches. Use the existing signed MSIX and independent installer workflow if deployment is actually needed; a missing proxy in the root requires launch-environment diagnosis instead.
 
 Run `node scripts/test-node-repl-proxy-env.cjs`, `powershell -NoProfile -File scripts/test-node-repl-proxy-targeted-mode.ps1` and `python -B scripts/test-probe-node-repl-proxy-env.py`. They verify behavior, scope/idempotence/no-write failure paths and synthetic plus task-owned process reads. They do not establish a newly installed Desktop's proxy routing. After a real deployment, verify the CUA child environment and a controlled browser tab. Restarting only its JavaScript kernel does not restart the MCP process.
+
+## Desktop 26.1027 webpack proxy anchor
+
+Store Desktop `26.1027.3384.0` / CLI `0.166.0-alpha.5.1` moves the native Node REPL config builder into `.vite/build/early-bootstrap.js` and emits `"CODEX_WINDOWS_REGISTERED_CORE"` instead of a backtick literal. The surrounding Windows/non-WSL/CLI guards and Set-based allowlist remain equivalent. The previous targeted discovery reports zero targets despite complete live reads showing proxy variables in the Desktop/backend but absent from CUA/Node REPL hosts.
+
+Target discovery and the proxy patcher now accept matching backtick, double-quote or single-quote delimiters while retaining the exact registered-core local binding and unique-anchor checks. Mismatched delimiters, wrong locals, duplicate targets and incomplete markers still fail closed. The resulting patch uses the existing canonical marker and is idempotent. This is a proxy-only compatibility update; the shipped native CUA readiness, installed-plugin guards, updater and model controls remain outside its scope.
+
+The actual Store bundle passed targeted DryRun and syntax validation. Behavior fixtures cover quote equivalence and malformed bindings, and production orchestration fixtures run all three quote styles in Windows PowerShell 5.1 and PowerShell 7. These checks establish preparation compatibility, not installed routing or native screenshot/input acceptance. Recheck fresh child environments and browser operations after deployment. The system-proxy launcher approach in PR #113 addresses a different configuration; it does not replace process-level inheritance when the system proxy is intentionally disabled.
+
+The contributor subsequently installed the proxy-only candidate as `26.1027.3384.1` without recovery. A complete 22,423-entry ASAR comparison found only `early-bootstrap.js` changed; installed ASAR/launcher hashes matched the validated candidate. Fresh Desktop reads passed for eleven core request hosts and eight custom Node children; all 66 sampled connections used the dedicated proxy with the system proxy off. Local IPC, isolated kernels and the artifact daemon were reported separately. Scoped strict verification and provider/CDN reachability passed. Native enumeration returned four windows and forty apps after one initial `list_apps` timeout; native screenshots/input were not exercised. In-app-browser HTTPS navigation and AX succeeded after a pre-repair timeout. Chrome extension/native-host checks and local-page navigation/AX passed, but two navigations to the same public HTTPS page timed out. An independent direct request timed out while an explicit-proxy request returned HTTP 200, consistent with a separate Chrome network-route limitation; this does not establish Chrome HTTPS acceptance. The optional all-bundled check still reported `deep-research` undiscoverable. These are contributor-host results, not guarantees for other versions or networks.
 
 ## Custom stdio MCP Launchers Do Not Inherit The Default Proxy
 

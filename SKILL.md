@@ -41,6 +41,7 @@ Preserve local edits and resolve divergence without forced resets or pushes. If 
 If the normal workflow does not explain a restriction, plugin gate, Computer Use failure, browser_use failure, or Fast Mode failure, read `references/restriction-debug-cases.md` before editing scripts or repatching.
 For Desktop 26.1021 native Windows CUA or a Power slider moved into `app-primary`, use the native-layout case in that reference. Preserve the shipped Windows readiness and installed-plugin guards when the patcher reports `already-open-native-windows`.
 For browser AX `Decompression failed`, use the AX asset case in that reference. For missing CUA child proxy variables, use its read-only process probe before selecting the opt-in `-OnlyNodeReplProxyEnv` or `-OnlyComputerUseSurfaceAndProxyEnv` repair; missing root-process proxy settings alone do not justify a package patch.
+Desktop `26.1027.3384.0` uses a double-quoted registered-core anchor in `early-bootstrap.js`; the proxy-only matcher supports this webpack layout. Keep the native CUA surface unchanged when enumeration already works, and distinguish a successful DryRun from post-install routing acceptance.
 When the requested repair includes default proxy routing for custom stdio MCP servers, inspect their actual launcher and server processes too. A passing Desktop/backend/CUA check does not establish custom MCP inheritance. Use the custom stdio MCP proxy case in that reference for a config-only `env_vars` repair; the CUA ASAR patch does not add proxy allowlists to unrelated MCP servers.
 If the task is phone remote control, QR pairing, mobile setup, isolated remote OAuth, remote-control WebSocket, or post-pairing API endpoint diagnosis, read `references/remote-control-debug-cases.md` before editing scripts or repatching.
 If a removed plugin or marketplace leaves stale `[plugins."..."]` or `[hooks.state."..."]` tables in `config.toml`, use the orphaned plugin config case in `references/restriction-debug-cases.md` before deleting anything.
@@ -66,11 +67,36 @@ Do not proceed with a config write if the backup of an existing config fails. Th
 
 ## Workflow Selection
 
+For recurring update regressions, prefer the repository's
+`scripts/codex-after-update.ps1`: default mode checks the exact package's repair
+transaction, live models and strict plugin/runtime contracts; `-CheckApp` runs a
+complete package dry run in disposable scratch space. A passing plugin check
+without accepted current-package evidence is `app-check-needed`, not app health.
+`-RepairPlugins -RepairApp` is an explicit repair path, never a watcher. Resume
+pending acceptance rather than deploying again, and reject unknown layouts or
+installer state before launch. Do not schedule or automatically invoke it unless
+the user requests that behavior. The recoverable launcher resolves default
+CustomModels from live model/list; explicit CustomModels remain available when
+the CLI cannot load the catalog. Never fabricate reasoning or service tiers.
+
 Before choosing the full MSIX repack path, identify whether the current failure is a Desktop bundle gate or a local plugin/runtime repair. Do not treat a vague "Chrome/Computer Use is unavailable" report as enough evidence to run the full repatch.
 
 For a missing dots entry, read [dots diagnostics](references/dots-diagnostics.md) first and use `scripts\diagnose-dots.py` for read-only package inspection. The cloud agent requires separate ChatGPT account/workspace access; route presence and a custom model provider do not establish that access. This is diagnostic support, not a dots unlock or a default MSIX patch.
 
 - Use the Model Experience workflow for Fast Mode request/UI failures, new models hidden from the Desktop picker, the compact Power slider falling back to the legacy picker, or its Ultra setting being disabled under a custom provider. Run `scripts\patch_codex_fast_mode_windows_msix.ps1 -OnlyModelExperience -DryRun` first for isolated diagnosis; it checks the Fast request gate, Fast UI gate, model visibility filter, Electron Power slider `harborEnabled` gate, and Ultra setting persistence independently. The Ultra fallback preserves the normal ChatGPT account API path and uses local `show-ultra-in-model-picker-slider` config only when ChatGPT user settings cannot load. `-OnlyCustomModels` remains a compatibility alias. Merge missing model metadata into `models_cache.json` only when read-only inspection proves the cache entry is absent; back up the cache first. The same area also covers the model picker offering only the Fast speed tier when the official catalog adds a second `ultrafast` tier for `gpt-5.6-sol` and a custom `model_catalog_json` predates it; that is a config-layer catalog backfill, not an ASAR repair — see the missing Ultrafast tier case in `references/restriction-debug-cases.md`.
+
+Native Desktop 26.1023 can instead filter Ultra through gate `1186680773` in
+both the model query and host capability bootstrap. The Ultra patcher recognizes
+this paired layout, admits existing catalog capabilities for custom providers,
+and preserves the official gate for other providers. Require both patch markers
+and `test-native-ultra-reasoning.ps1` before installation; `not-applicable` alone
+does not establish that a native Ultra control is healthy.
+
+After a package update, the local plugin repair also backs up and refreshes
+already published descriptors in Desktop's actual reserved marketplace mirror,
+then upgrades installed plugin version records to the package versions while
+preserving disabled states. It does not install unrelated optional plugins.
+Run `test-bundled-plugin-upgrade-repair.ps1` when changing this synchronization.
 
 If `install-computer-use-local.ps1 -StrictVerifyOnly` also reports that installed `app.asar` does not preserve external `NODE_REPL_TRUSTED_CODE_PATHS` across Desktop config regeneration, do not use the Model Experience-only installer: that mode cannot repair the shared Node REPL trust contract. Run a full package dry run on D: and require a `Node REPL trusted-paths patch result: patched` or `already-patched` report plus the trusted-path marker in the staged `app.asar`, then use `scripts\start-model-experience-repair.ps1`. A repair runner must confirm that marker in the candidate package; it must not infer failure from `already-patched` alone. This launcher requests ordinary UAC consent, binds the external installer to the current user SID, desktop session, and exact source package version, and invokes the complete non-phone patch path. It builds a higher-revision signed recovery package containing the original program files, installs the patch in place, then requires the default model to expose `priority` plus a passing `-StrictVerifyOnly` before removing temporary artifacts. Record `ultrafast` per model from `model/list`; never fabricate it for a model/provider that does not advertise that tier. No phone remote-control patch is included. UAC or policy rejection stops before the app is closed; do not replace it with a scheduled task, policy change, or another elevation bypass.
 - Use the full repatch workflow for locale, plugin UI gates, browser_use Desktop gates, Goal gates, ASAR integrity, settings/UI availability gates, or when Model Experience repair is required together with those features. For packages that ship `image-guided-assets`, the marketplace gate may be tied to the default-off `imageGuidedAssets` feature flag; expose the entry through the guarded ASAR patch while setting `installWhenMissing:false`, then require `-StrictVerifyOnly -VerifyAllBundledPluginsAvailable`. This makes the optional plugin discoverable without installing it.
