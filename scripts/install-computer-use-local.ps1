@@ -4,6 +4,7 @@ param(
   [string]$PluginVersion = '0.1.0-local',
   [switch]$VerifyOnly,
   [switch]$StrictVerifyOnly,
+  [switch]$OnlyRuntimeProxy,
   [switch]$VerifyAllBundledPluginsAvailable,
   [switch]$SkipUserEnvironment
 )
@@ -3014,14 +3015,44 @@ function Test-DesktopChromeExtensionVisible {
     [pscustomobject]$RuntimeInventory
   )
 
+  try {
+    Test-DesktopBrowserExtensionVisible $ChromeCacheRoot $RuntimeInventory -BrowserFamily chrome
+    return
+  } catch {
+    $chromeFailure = $_.Exception.Message
+    if ($chromeFailure -notlike '*Chrome profile root that Codex Desktop scans does not exist*' -and
+        $chromeFailure -notlike '*Codex Desktop cannot see the Chrome extension*') { throw }
+  }
+  # The shipped runtime supports Edge too. An enabled Edge extension is sufficient
+  # when Chrome has no usable extension; never map one browser's profile to another.
+  try {
+    Test-DesktopBrowserExtensionVisible $ChromeCacheRoot $RuntimeInventory -BrowserFamily edge
+  } catch {
+    throw "$chromeFailure; Edge verification also failed: $($_.Exception.Message)"
+  }
+}
+
+function Test-DesktopBrowserExtensionVisible {
+  param(
+    [string]$ChromeCacheRoot,
+    [pscustomobject]$RuntimeInventory,
+    [ValidateSet('chrome', 'edge')][string]$BrowserFamily
+  )
+
+  $browserLabel = if ($BrowserFamily -eq 'edge') { 'Edge' } else { 'Chrome' }
   $checkScript = Join-Path $ChromeCacheRoot 'scripts\check-extension-installed.js'
   if (-not (Test-Path -LiteralPath $checkScript -PathType Leaf)) {
     throw "missing official Chrome extension diagnostic: $checkScript"
   }
 
-  $desktopRoot = Get-DesktopChromeUserDataDirectory
+  $desktopRoot = if ($BrowserFamily -eq 'chrome') {
+    Get-DesktopChromeUserDataDirectory
+  } else {
+    $localAppData = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $env:USERPROFILE 'AppData\Local' }
+    [IO.Path]::GetFullPath((Join-Path $localAppData 'Microsoft\Edge\User Data'))
+  }
   if (-not (Test-Path -LiteralPath $desktopRoot -PathType Container)) {
-    throw "Chrome profile root that Codex Desktop scans does not exist: $desktopRoot"
+    throw "$browserLabel profile root that Codex Desktop scans does not exist: $desktopRoot"
   }
 
   # Desktop resolves the profile root from LOCALAPPDATA/APPDATA only. Clearing
@@ -3040,7 +3071,7 @@ function Test-DesktopChromeExtensionVisible {
     foreach ($name in $overrideNames) {
       [Environment]::SetEnvironmentVariable($name, $null, 'Process')
     }
-    $output = @(& $RuntimeInventory.NodePath $checkScript '--browser' 'chrome' '--json' 2>&1)
+    $output = @(& $RuntimeInventory.NodePath $checkScript '--browser' $BrowserFamily '--json' 2>&1)
     $exitCode = $LASTEXITCODE
   } finally {
     $ErrorActionPreference = $previousErrorActionPreference
@@ -3051,25 +3082,31 @@ function Test-DesktopChromeExtensionVisible {
 
   $text = ($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
   if ($exitCode -ne 0) {
-    throw "Codex Desktop cannot see the Chrome extension in $desktopRoot (official diagnostic exit=$exitCode): $text"
+    if ($exitCode -notin @(1, 2)) {
+      throw "official $browserLabel extension diagnostic failed (exit=$exitCode): $text"
+    }
+    throw "Codex Desktop cannot see the $browserLabel extension in $desktopRoot (official diagnostic exit=$exitCode): $text"
   }
 
   try {
     $status = $text | ConvertFrom-Json -ErrorAction Stop
   } catch {
-    throw "official Chrome extension diagnostic returned invalid JSON: $text"
+    throw "official $browserLabel extension diagnostic returned invalid JSON: $text"
+  }
+  if ([string]$status.browserFamily -cne $BrowserFamily) {
+    throw "official $browserLabel extension diagnostic reported a different browser family"
   }
   if (-not [bool]$status.installed -or -not [bool]$status.enabled) {
-    throw "official Chrome extension diagnostic did not report an installed and enabled extension: $text"
+    throw "official $browserLabel extension diagnostic did not report an installed and enabled extension: $text"
   }
 
   $reportedRoot = [string]$status.userDataDirectory
   if ([string]::IsNullOrWhiteSpace($reportedRoot) -or
       ([System.IO.Path]::GetFullPath($reportedRoot).TrimEnd('\') -ine $desktopRoot.TrimEnd('\'))) {
-    throw "official Chrome extension diagnostic did not evaluate the Desktop-visible profile root: $reportedRoot"
+    throw "official $browserLabel extension diagnostic did not evaluate the Desktop-visible profile root: $reportedRoot"
   }
 
-  Write-Log "Desktop-visible Chrome extension verification ok: root=$desktopRoot extension=$([string]$status.extensionId)"
+  Write-Log "Desktop-visible $browserLabel extension verification ok: root=$desktopRoot extension=$([string]$status.extensionId)"
 }
 
 function Test-ChromeAppServerHostConfig {
@@ -3854,8 +3891,7 @@ function Test-ComputerUseSkillManagedByCua {
     $nodeRepl = Join-Path $bin 'node_repl.exe'
     $launcher = Join-Path $modules '@oai\cua-repl\bin\cua-repl.mjs'
     if ([IO.Path]::GetFullPath([string]$server.command) -ine $node -or
-        @($server.args).Count -ne 1 -or
-        [IO.Path]::GetFullPath([string]$server.args[0]) -ine $launcher -or
+        (Get-CuaNodeEntryPath @($server.args)) -ine $launcher -or
         [IO.Path]::GetFullPath([string]$server.env.CUA_REPL_NODE_REPL_PATH) -ine $nodeRepl -or
         [IO.Path]::GetFullPath([string]$server.env.NODE_REPL_NODE_MODULE_DIRS) -ine $modules) { return $false }
     foreach ($path in @($node, $nodeRepl, $launcher)) {
@@ -4162,6 +4198,98 @@ function Invoke-BrowserAccessibilityAssets {
   }
 }
 
+function Get-CuaRuntimeSystemProxy {
+  $settings = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction Stop
+  if ($settings.AutoConfigURL) {
+    $connections = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Connections' -ErrorAction SilentlyContinue
+    $flags = $connections.DefaultConnectionSettings
+    if (-not $flags -or $flags.Length -le 8 -or ($flags[8] -band 4)) {
+      throw 'CUA runtime proxy repair does not support enabled or indeterminate PAC; configure an explicit HTTP system proxy first.'
+    }
+  }
+  if ([int]$settings.ProxyEnable -ne 1) { return $null }
+  $server = [string]$settings.ProxyServer
+  if ([string]::IsNullOrWhiteSpace($server)) { throw 'Enabled system proxy has no explicit HTTP server.' }
+  if ($server.Contains('=')) {
+    $protocols = @{}
+    foreach ($part in $server.Split(';')) {
+      if ([string]::IsNullOrWhiteSpace($part)) { continue }
+      $pair = $part.Split('=', 2)
+      if ($pair.Count -ne 2 -or $protocols.ContainsKey($pair[0].Trim().ToLowerInvariant())) { throw 'Ambiguous system proxy map.' }
+      $protocols[$pair[0].Trim().ToLowerInvariant()] = $pair[1].Trim()
+    }
+    $server = if ($protocols.ContainsKey('https')) { $protocols['https'] } elseif ($protocols.ContainsKey('http')) { $protocols['http'] } else { throw 'No HTTP/HTTPS proxy in the system proxy map.' }
+  }
+  if ($server -notmatch '^[A-Za-z][A-Za-z0-9+.-]*://') { $server = 'http://' + $server }
+  return $server
+}
+
+function Get-CuaNodeEntryPath {
+  param([object[]]$NodeArguments)
+  for ($index = 0; $index -lt $NodeArguments.Count; $index++) {
+    $argument = [string]$NodeArguments[$index]
+    if ($argument -in @('--import', '--require', '-r')) {
+      $index++
+      if ($index -ge $NodeArguments.Count) { throw 'Missing Node preload argument.' }
+      $preload = [string]$NodeArguments[$index]
+      if ($preload.StartsWith('file:')) { $preload = ([uri]$preload).LocalPath }
+      if (-not (Test-Path -LiteralPath $preload -PathType Leaf)) { throw 'CUA Node preload file is missing; its policy must be preserved.' }
+      continue
+    }
+    if ($argument.StartsWith('-')) { throw 'Unsupported CUA Node launch option; no runtime file was changed.' }
+    if ($index -ne $NodeArguments.Count - 1) { throw 'Ambiguous CUA Node entry arguments.' }
+    return (Resolve-ExistingFileProviderPath $argument)
+  }
+  throw 'CUA Node launch entry is missing.'
+}
+
+function Invoke-CuaRuntimeProxyRepair {
+  param([object]$RuntimeInventory, [string]$CodexHomeRoot, [switch]$VerifyOnly)
+  $proxy = Get-CuaRuntimeSystemProxy
+  $entries = @()
+  foreach ($binRoot in @($RuntimeInventory.AllowedCuaBinRoots)) {
+    $entry = Join-Path $binRoot 'node_modules\@oai\cua-repl\bin\cua-repl.mjs'
+    if (Test-Path -LiteralPath $entry -PathType Leaf) { $entries += (Resolve-ExistingFileProviderPath $entry) }
+  }
+  $manifestRoot = Join-Path $CodexHomeRoot 'plugins\cache\openai-bundled\unified-computer-use'
+  if (Test-Path -LiteralPath $manifestRoot -PathType Container) {
+    foreach ($manifest in @(Get-ChildItem -LiteralPath $manifestRoot -Filter .mcp.json -Recurse -File)) {
+      $server = (Get-Content -Raw -LiteralPath $manifest.FullName | ConvertFrom-Json).mcpServers.cua_repl
+      if (-not $server -or $server.enabled -eq $false) { continue }
+      $nodePath = [IO.Path]::GetFullPath([string]$server.command)
+      $allowedNodes = @($RuntimeInventory.AllowedCuaBinRoots | ForEach-Object { Join-Path $_ 'node.exe' })
+      # Old versioned manifests are not active targets for the current package.
+      if ($allowedNodes -notcontains $nodePath) { continue }
+      $activeEntry = Get-CuaNodeEntryPath @($server.args)
+      if ($entries -notcontains $activeEntry) { throw 'The current CUA manifest points outside the package-matching runtime entries.' }
+    }
+  }
+  if ($entries.Count -eq 0) { Write-Log 'CUA runtime proxy: not applicable to this runtime layout'; return }
+  $patcher = Join-Path $PSScriptRoot 'patch-cua-runtime-proxy.cjs'
+  foreach ($entry in @($entries | Select-Object -Unique)) {
+    $request = @{ entryPath = $entry; proxyUrl = $proxy; verifyOnly = [bool]$VerifyOnly; backupRoot = (Join-Path $CodexHomeRoot 'backups\cua-runtime-proxy') }
+    $oldPreference = $ErrorActionPreference
+    $oldOutputEncoding = $OutputEncoding
+    $oldConsoleOutputEncoding = [Console]::OutputEncoding
+    try {
+      $ErrorActionPreference = 'Continue'
+      $OutputEncoding = [Text.UTF8Encoding]::new($false)
+      [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+      $output = @((ConvertTo-Json -InputObject $request -Compress) | & $RuntimeInventory.NodePath $patcher 2>&1)
+      $exitCode = $LASTEXITCODE
+    } finally {
+      $OutputEncoding = $oldOutputEncoding
+      [Console]::OutputEncoding = $oldConsoleOutputEncoding
+      $ErrorActionPreference = $oldPreference
+    }
+    $detail = ($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
+    if ($exitCode -ne 0) { throw "CUA runtime proxy repair/verification failed: $detail" }
+    $result = $detail | ConvertFrom-Json
+    Write-Log "CUA runtime proxy: $($result.state) entry=$entry restartRequired=$($result.restartRequired)"
+    if ($result.restartRequired) { Write-Log 'Restart Codex Desktop to load the changed CUA entry; static verification alone is not live browser acceptance.' }
+  }
+}
+
 function Install-ComputerUse {
   $codexHomeResolved = Resolve-OrCreateDirectory $CodexHome
   $marketplaceRoot = Get-StableBundledMarketplaceRoot $codexHomeResolved
@@ -4202,6 +4330,7 @@ function Install-ComputerUse {
   }
 
   $runtimeInventory = Get-CurrentCodexAppServerRuntimeInventory
+  Invoke-CuaRuntimeProxyRepair $runtimeInventory $codexHomeResolved
   $entryInstructions = Repair-WindowsCuaEntryInstructions `
     -NodeModulesRoot (Join-Path (Split-Path -Parent $runtimeInventory.NodePath) 'node_modules') `
     -BackupRoot (Join-Path $codexHomeResolved 'backups\cua-instructions')
@@ -4248,6 +4377,7 @@ function Test-ComputerUse {
   $installedChromeVersion = Get-PluginVersion $installedChromeRoot
   $installedChromeCacheRoot = Join-Path $codexHomeResolved "plugins\cache\openai-bundled\chrome\$installedChromeVersion"
   $runtimeInventory = Get-CurrentCodexAppServerRuntimeInventory
+  Invoke-CuaRuntimeProxyRepair $runtimeInventory $codexHomeResolved -VerifyOnly
   $headerMarketplaceRoot = Get-StableBundledMarketplaceRoot $codexHomeResolved
   Invoke-BrowserAccessibilityAssets $codexHomeResolved $headerMarketplaceRoot $installedMarketplaceRoot $runtimeInventory -VerifyOnly
   $headerPatcher = Join-Path $PSScriptRoot 'patch-chrome-custom-provider-headers.cjs'
@@ -4439,6 +4569,12 @@ function Test-ComputerUse {
   Test-HelperTransport $helperTransportPath
   Test-ComputerUseNodeReplContextPatch $helperTransportPath
   Write-Log 'verification ok'
+}
+
+if ($OnlyRuntimeProxy) {
+  $runtimeInventory = Get-CurrentCodexAppServerRuntimeInventory
+  Invoke-CuaRuntimeProxyRepair $runtimeInventory $CodexHome -VerifyOnly:$StrictVerifyOnly
+  exit 0
 }
 
 if ($StrictVerifyOnly) {

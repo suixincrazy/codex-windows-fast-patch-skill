@@ -258,6 +258,25 @@ Any bundled script write to an existing `config.toml` first creates one timestam
 
 Before repairing phone remote control, read `references/remote-control-debug-cases.md`. Keep these boundaries explicit:
 
+For Desktop 26.1027's split webpack/rolldown layout, the older complete phone
+patch fails closed with `could not find main bundle with remote-control remote-control flow`.
+For the specific missing/inert Settings entry symptom, use
+`patch-remote-control-windows-msix.ps1 -OnlySettingsEntry -DryRun -OutputRoot <large-local-root>`
+first. This mode changes only the settings asset's local-tab and section visibility,
+preserves the original React hook call and all authentication/access checks,
+and rejects partial/duplicate patches or native replacement combinations.
+It does not port isolated OAuth, enable the native transport, or prove QR/phone
+pairing. Do not describe it as complete remote-control repair. Deployment still
+requires an independent executor, normal UAC and an original-content recovery
+package. Run `node scripts/test-remote-control-settings-entry.cjs <original-settings-asset>`
+and the ASAR integrity regression before installing. Unknown full-phone layouts
+remain unsupported; never replace 0.166 native code with a legacy 0.154 binary.
+For the separately version-pinned 0.166 native/local-RPC repair, read
+`references/remote-control-native-local-261027.md`. That exact deployed
+version pair has user-confirmed phone acceptance. The reference also covers
+the native system-proxy feature, process-correlated evidence, config runtime
+path regeneration and artifact cleanup; it is not an automatic legacy profile.
+
 - Remote-control pairing/control transport can legitimately call `https://chatgpt.com/backend-api/wham/remote/control/...`. Do not rewrite that transport to a third-party model API endpoint.
 - After phone pairing works, verify the actual model sampling request URL. If it goes to the wrong model API endpoint, treat that as a post-pairing configuration diagnosis, not as part of the remote-control pairing implementation.
 - Remote-control OAuth is isolated: use `.codex\remote-control-oauth.json` and `.codex\remote.json`; never use `.codex\auth.json` for the remote-control bearer injection path.
@@ -582,6 +601,12 @@ After configuring `model_instructions_file`, restart Codex CLI/Desktop or start 
 
 ## Computer Use Only
 
+The local repair and recoverable one-click repair also prepare the extracted CUA launcher for the current explicit Windows HTTP proxy. This handles a Desktop parent with no proxy environment to inherit. It preserves existing explicit environment values and Node preload policy, validates HTTP CONNECT, backs up exact bytes, and only changes a recognized launcher shape. PAC, authenticated/non-HTTP proxies and unknown patched launchers are rejected. No global environment or system proxy is changed. When the explicit proxy is disabled, a known managed block is removed; proxy address drift is refreshed on apply.
+
+For only this repair, run `powershell -NoProfile -ExecutionPolicy Bypass -File "$SkillRoot\scripts\install-computer-use-local.ps1" -OnlyRuntimeProxy`. Add `-StrictVerifyOnly` for a read-only check (including CONNECT); a missing or stale block fails. After a write, restart Desktop before testing fresh Chrome and in-app-browser tabs separately. Static checks do not establish live browser acceptance. The recoverable installer prepares this before its existing Desktop restart; a standalone local repair needs a subsequent restart. This requires the current package's runtime to have been extracted by launching Desktop once.
+
+The PowerShell-to-Node proxy request and response use explicit UTF-8 and restore the caller's encoding state even on failure. When changing this path, run `test-cua-runtime-proxy-transport.ps1 -TemporaryRoot <local-test-root>` under Windows PowerShell 5.1 and PowerShell 7. It exercises the production function with Chinese/space paths, strict no-write checks, apply/idempotence/restore, exact backups and CONNECT failures through a loopback-only fixture; it does not restart Desktop or establish live browser acceptance.
+
 Use this path for local Computer Use plugin/runtime repair without repacking the MSIX. It rebuilds the local `openai-bundled` marketplace mirror, repairs stable `computer-use` / `browser` / `chrome` / `sites` cache links from one pinned installed-package source, overlays the installed CUA `@oai/sky` runtime into the local Computer Use plugin, patches localized/default-value Chrome registry parsing and the Computer Use client import shape when needed, preserves a live `SKY_CUA_NATIVE_PIPE` configuration while removing stale overrides, updates the Chrome native messaging host and both schema-2 app-server state files to current stable cache/runtime paths, and verifies the client import or independent runtime transport.
 
 If the runtime responds, the `codex-computer-use-*` pipe exists, and `-StrictVerifyOnly` passes, but `Object.keys(cua)` still has no native members, inspect the current plugin layout. Run the following plugin-level repair only when `unified-computer-use/scripts/launch.mjs` exists; descriptor-only 26.908+ builds require the targeted ASAR workflow above:
@@ -703,9 +728,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$SkillRoot\scripts\manage-c
 - The patched ASAR has the Computer Use availability and install gates forced local-available. On newer builds these targets can be merged into `webview\assets\app-initial-*.js` instead of the older `use-is-plugins-enabled-*` and `use-plugin-install-flow-*` chunks.
 - The patched ASAR has the Fast Mode UI gate unblocked, the locale chunk with `enable_i18n` forced enabled, and browser_use feature chunks/main feature dispatch patched to report in-app and external browser availability locally. Codex Desktop `26.721.3996.0` can merge the Fast UI, model visibility, and Browser sidebar targets into `webview\assets\app-initial-*.js`.
 - For phone remote-control repair, the patched ASAR contains `remote_control_desktop_fetch_override_used`, `remote_control_auth_token_expired_skipped`, `remote_control_mobile_setup_no_auth_redirect`, `remote_control_mobile_setup_authorize_before_enable`, `remote_control_mfa_info_403_nonblocking`, `remote_control_client_list_partial_failure_nonblocking`, `remote_control_settings_force_control_this_pc_visible`, `remote_control_settings_force_remote_control_section_visible`, and `remote_control_qm_start`.
-- For phone remote-control repair with a native replacement, live `app\resources\codex.exe` contains `remote_control_app_server_isolated_oauth_used`, `remote_control_native_remote_json_first`, `remote_control_websocket_proxy_attempt`, `remote_control_websocket_proxy_connected`, `remote-control-oauth.json`, `remote.json`, and `codex.remote_control.enroll`.
+- For a legacy phone native replacement, require its documented complete binary-marker contract. Native 0.166 uses the official policy-aware connector instead of the legacy `remote_control_websocket_proxy_*` additions; apply the version-pinned contract in `references/remote-control-native-local-261027.md`, not an old marker list or binary.
 - For phone remote-control device-list login errors, `scripts\refresh-remote-control-auth.py --verify-only` reports `ok: true` against `/backend-api/wham/remote/control/clients`; if the script regenerated auth, the previous `.codex\remote.json` was backed up and `.codex\auth.json` plus `config.toml` were not modified.
-- For phone remote-control repair, `Settings -> Connections` shows the mobile/phone setup path, the QR code appears, phone scan no longer reports an expired Codex environment, PID/path-correlated native logs show `remote_control_websocket_proxy_connected` and status `Connected` without repeated Windows `os error 10060`, and phone-sent turns reach Desktop. Ping/Pong frame text is optional because some native versions handle those frames without logging them. If a phone-sent turn then targets the wrong model API endpoint, handle it as the post-pairing configuration case.
+- For phone remote-control repair, separately record Settings/UI, phone pairing, current PID/path-correlated connection logs and a phone-sent turn reaching Desktop. Native 0.166 may log `connected to app-server remote control websocket` rather than the legacy proxy marker; tracing spans can precede message text, so do not require it at the start of the stored body. A user-confirmed connection is real user evidence, not an independently logged handshake or message round trip. Ping/Pong logging is optional. If a phone-sent turn targets the wrong model API endpoint, diagnose that post-pairing configuration separately.
 - For Dynamic Tools Schema repair, the patched ASAR has `webview\assets\app-server-dynamic-tools-*.js` returning flat entries containing `namespace`, `name`, `description`, and `inputSchema` instead of a namespace wrapper object, `node --check` passes for that asset, and actual Desktop new-chat/thread creation no longer logs `missing field inputSchema`.
 - For Provider History Sync, both App and legacy SQLite stores report thread rows under the current provider, readable rollout first lines use the current provider, `config.toml sha256 unchanged` is logged, official Desktop conversations reappear, and no new empty project groups are introduced.
 - For orphaned plugin config cleanup, read-only classification succeeds before `-Install`; the write run reports a SHA-256-verified backup, valid TOML, no UTF-8 BOM, absence of the exact plugin/hook tables, and preservation of similar IDs and unrelated tables.

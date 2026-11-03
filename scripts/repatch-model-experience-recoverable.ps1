@@ -17,6 +17,7 @@ $script:RepairLogRoot = 'D:\CodexData\codex-windows-fast-patch\model-experience-
 . (Join-Path $PSScriptRoot 'lib\msix-safe-install.ps1')
 . (Join-Path $PSScriptRoot 'lib\msix-payload.ps1')
 . (Join-Path $PSScriptRoot 'lib\repair-deployment-state.ps1')
+. (Join-Path $PSScriptRoot 'lib\appx-launch.ps1')
 $patcher = Join-Path $PSScriptRoot 'patch_codex_fast_mode_windows_msix.ps1'
 $script:TranscriptStarted = $false
 $repairTempParent = 'D:\CodexData\cwp-tmp'
@@ -682,30 +683,20 @@ function Start-AndValidateCodex {
     [version]$PatchedVersion,
     [string]$CliPath
   )
-  $manifest = Get-AppxPackageManifest -Package $Package
-  $application = @($manifest.Package.Applications.Application) | Select-Object -First 1
-  if (-not $application) { throw 'The installed Codex package has no application entry.' }
-  $appUserModelId = "$($Package.PackageFamilyName)!$($application.Id)"
-  $executable = Join-Path $Package.InstallLocation ([string]$application.Executable).Replace('/', '\')
-  $processName = [IO.Path]::GetFileNameWithoutExtension($executable)
-  Start-Process -FilePath 'explorer.exe' -ArgumentList "shell:AppsFolder\$appUserModelId"
-  $deadline = (Get-Date).AddSeconds(45)
-  $process = $null
-  while (-not $process -and (Get-Date) -lt $deadline) {
-    Start-Sleep -Milliseconds 500
-    $process = Get-Process -Name $processName -ErrorAction SilentlyContinue |
-      Where-Object { $_.Path -and $_.Path.Equals($executable, [StringComparison]::OrdinalIgnoreCase) } |
-      Select-Object -First 1
-  }
-  if (-not $process) { throw "Codex did not start from the installed package path: $executable" }
-  Start-Sleep -Seconds 4
-  $process.Refresh()
-  if ($process.HasExited) { throw 'Codex exited immediately after the package update.' }
-  Write-Log "Codex process start verified: pid=$($process.Id) version=$($Package.Version)"
+  $entry = Get-InstalledAppxApplicationEntry -Package $Package
+  $appUserModelId = Start-InstalledAppxPackage -Package $Package
+  $process = Wait-InstalledAppxDesktopProcess -Executable $entry.Executable -ProcessName $entry.ProcessName -StableSeconds 4
+  Write-Log "Codex process start verified: pid=$($process.Id) version=$($Package.Version) aumid=$appUserModelId"
   if ([version]$Package.Version -eq $PatchedVersion) {
     $null = Test-ModelListFastTiers -CliPath $CliPath
     Test-ComputerUseStrictVerification
   }
+}
+
+function Initialize-CuaRuntimeProxy {
+  $localRepair = Join-Path $PSScriptRoot 'install-computer-use-local.ps1'
+  & $localRepair -OnlyRuntimeProxy
+  if ($LASTEXITCODE -ne 0) { throw 'CUA runtime proxy preparation failed before Desktop restart.' }
 }
 
 $resolvedOutputRoot = $null
@@ -885,6 +876,9 @@ try {
   $null = Test-MsixDeploymentPreflight -MsixPath $patchedMsix -PackageName 'OpenAI.Codex'
   $null = Test-MsixDeploymentPreflight -MsixPath $recoveryMsix -PackageName 'OpenAI.Codex'
   Write-Log 'both package deployment preflights passed before application shutdown'
+  # Repair the extracted source runtime before the transaction closes Desktop.
+  # Post-launch strict verification independently checks the selected runtime.
+  Initialize-CuaRuntimeProxy
 
   $cliPath = Get-CodexCli
   $script:RepairDeploymentState.recoveryPackageFullName = ([string]$package.PackageFullName).Replace("_$($package.Version)_", "_${recoveryVersion}_")

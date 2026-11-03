@@ -27,6 +27,8 @@
 
 This community-maintained **Agent Skill** contains diagnostic workflows and repair scripts. It is not an official client or a universal one-click installer.
 
+The one-click repair includes CUA browser proxy recovery using the explicit Windows HTTP system proxy, with original-byte backups and reapplication after proxy changes. Restart Codex after a write and verify Chrome and the in-app browser separately. Run `scripts/install-computer-use-local.ps1 -OnlyRuntimeProxy` for only this repair; add `-StrictVerifyOnly` for read-only checks. PAC, authenticated and non-HTTP proxies are unsupported.
+
 > [!WARNING]
 > **Windows only. Some repairs include reinstalling Codex.** The app will close and the current conversation may be interrupted. After installation, reopen Codex, return to the original repair conversation, and send "continue" to resume. See the [reinstallation details](#which-repairs-reinstall-codex).
 
@@ -72,6 +74,8 @@ configuration and conversations, run background verification, and clean up tempo
 
 Verification defaults to background read-only checks. It does not automatically open Calculator or another test app, change native-window focus, or inject mouse/keyboard input. Runtime, plugin, and window-enumeration results are reported separately. Live native screenshot/input tests run only when explicitly requested or authorized, and untested operations are identified as such.
 
+External-browser extension verification accepts Chrome or Edge. For an Edge-only installation, the official diagnostic checks Edge's own profile root; installing the extension in Chrome or mapping one browser's user directory to another is unnecessary. Actual page access still requires separate verification.
+
 **Request phone remote control separately:**
 
 ```text
@@ -80,6 +84,17 @@ my third-party API configuration, existing login, and conversation history.
 ```
 
 ### Check and recover after an update
+
+For Desktop 26.1027's missing or inert phone Settings entry, the phone script's
+`-OnlySettingsEntry -DryRun` mode repairs only paired visibility/routing gates.
+It preserves auth/access checks and React hooks. It does not port isolated OAuth
+or native connection support and is not QR/phone pairing acceptance. See
+[phone diagnostics](references/remote-control-debug-cases.md).
+The separately pinned [0.166 native isolated-remote repair](references/remote-control-native-local-261027.md)
+has user-confirmed phone acceptance for that exact deployed version pair,
+with system-proxy and cleanup boundaries documented. It does not enable the
+legacy full-phone workflow automatically or imply independently captured
+phone-message round-trip/model-request URL evidence.
 
 The repository includes a reusable entry point instead of a script copied from a repair chat:
 

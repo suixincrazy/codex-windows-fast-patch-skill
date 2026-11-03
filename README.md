@@ -32,6 +32,8 @@
 
 ## 能修复什么
 
+一键修复已包含 CUA 浏览器代理恢复：从 Windows 显式 HTTP 系统代理生成受管理的本地 runtime 补丁，保留原件备份；代理改变后可重新应用。修改后需重启 Codex，并分别验证 Chrome 与内置浏览器。仅修复此项可运行 `scripts/install-computer-use-local.ps1 -OnlyRuntimeProxy`；加 `-StrictVerifyOnly` 只检查。暂不支持 PAC、带认证或非 HTTP 代理。
+
 | 问题 | 覆盖范围 |
 | --- | --- |
 | **模型与速度选项缺失** | Fast Mode、被隐藏的已有模型、Power 拖动条、Ultra 开关 |
@@ -44,6 +46,13 @@
 | **配置听话水** | 配置 skill 内置的系统提示词文件及 `model_instructions_file` |
 
 手机远控和听话水配置（`model_instructions_file`）均为可选流程，不会随普通修复自动启用。
+
+新版 26.1027 若仅“设置中缺少手机远控入口或点击无反应”，可先运行手机脚本的
+`-OnlySettingsEntry -DryRun`。该模式只修入口显示和路由，保留认证与权限检查，
+不包含新版隔离登录或原生连接适配，不能视为扫码连接已修复。详情见[手机远控排查](references/remote-control-debug-cases.md)。
+同版本另有精确绑定的 [0.166 原生隔离远控适配](references/remote-control-native-local-261027.md)，
+已完成该版本组合的用户手机连接验收，包含系统代理与清理边界说明；不自动套用旧版完整修复流程，
+也不把用户确认当作已独立采集手机消息回环或实际模型请求地址。
 
 补丁是否适用取决于当前版本和文件内容，不能把旧补丁强套到未知版本。模型仍需由你的供应商提供，本项目不提供模型 API 或额度。会话恢复以本地历史数据仍在为前提；修复缺失目录不会找回被删除的项目文件。
 
@@ -86,6 +95,8 @@ Claude Code 可将目标改为 `$env:USERPROFILE\.claude\skills\codex-windows-fa
 模型白名单默认从当前提供方的 `model/list` 获取可见模型和用户选中的默认模型，保留各模型原有 reasoning/service tiers，避免更新修复回退到旧的写死列表。也可显式传 `-CustomModels @('your-model-a','your-model-b')`；这只控制已有目录项的可见性，不会创造模型或速度能力。恢复启动器默认也使用实时目录；读取失败会停止并给出诊断，而不悄悄使用旧列表。
 
 输出包含机器可读 JSON 状态。可加 `-ReportPath '<新的报告路径>.json'` 保存报告（不会覆盖已有文件）；`-WhatIf` 允许诊断，但不修复插件、不启动安装器、不保存报告。完整包诊断需要临时磁盘空间，不修改已安装应用。工具不会安装定时任务、自动监控或后台自动重启。商店仍可覆盖包内补丁；本入口用于在更新后发现并恢复兼容的已知路径，未知结构会报告不支持并停止安装，不能保证所有未来版本都自动兼容。详细状态与边界见[更新后验证](references/post-update-verification.md)。
+
+外部浏览器扩展验收支持 Chrome 或 Edge。仅在 Edge 安装扩展时，会通过官方诊断检查 Edge 自己的配置目录，无需再往 Chrome 安装扩展，也不会把两个浏览器的用户目录互相映射。实际网页访问仍需分别核验。
 
 **需要手机远控时单独提出：**
 
