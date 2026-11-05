@@ -36,6 +36,8 @@ The one-click repair preserves the runtime launcher when valid `HTTP_PROXY` and 
 
 ## What it repairs
 
+For `26.1029.7803` startup blocked by Statsig initialization, the full desktop patch bounds the Windows post-login request budget to 5 seconds and SDK network fallback to 2 seconds, preserving cached values and background refresh. Renderer exit reason and code are recorded locally; this diagnostic does not establish that a native renderer crash is fixed. See [startup delays and reload diagnosis](references/windows-startup-stability.md).
+
 For reopening immediately after exit without a window, the `26.1029.7803` repair preserves the activation and restores one window after the old process exits. Single and repeated activation races passed, and the user confirmed the taskbar-close path. See [Windows reopen repair](references/windows-reopen-repair.md) for diagnosis and deployment.
 
 For `failed to spawn code-mode host`, run `scripts/install-computer-use-local.ps1 -OnlyExecutorRuntime`; add `-StrictVerifyOnly` for read-only checks. It verifies complete file hashes against the current package, restores missing companions, and backs up and migrates `CODEX_CLI_PATH` pins to retired cache directories. Restart Codex after repair, then verify the actual app-server path and a real tool call.

@@ -34,6 +34,8 @@
 
 ## 能修复什么
 
+`26.1029.7803` 启动卡在 Statsig 初始化时，完整桌面补丁将 Windows 登录后请求的总等待限制为 5 秒，SDK 网络回退等待限制为 2 秒，并保留缓存及后台刷新。日志新增渲染进程退出原因与退出码；这项诊断不等于已经修复原生渲染崩溃。见[启动等待与重载诊断](references/windows-startup-stability.md)。
+
 刚退出后立即重开却没有窗口时，`26.1029.7803` 的退出期间重开修复会保留启动请求，待旧进程退出后恢复一个窗口。已完成单次、连续三次重开请求及用户任务栏关闭路径验收。诊断与部署见[退出后重开修复](references/windows-reopen-repair.md)。
 
 工具报 `failed to spawn code-mode host` 时，可运行 `scripts/install-computer-use-local.ps1 -OnlyExecutorRuntime`，加 `-StrictVerifyOnly` 只检查。它核对当前包的完整文件哈希、恢复缺失的配套程序，并备份后迁移固定旧缓存目录的 `CODEX_CLI_PATH`。修复后重启 Codex，核对实际 app-server 路径和真实工具调用。

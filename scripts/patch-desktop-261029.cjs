@@ -24,6 +24,10 @@ function validateModels(models) {
 
 function restore(source, profile) {
   if (hash(source) === profile.sha256) return source;
+  const legacyEdits = profile.edits.filter(edit => !edit.kind?.startsWith('startup-'));
+  if (legacyEdits.length !== profile.edits.length) {
+    try { return restore(source, {...profile, edits: legacyEdits}); } catch {}
+  }
   let original = source;
   try {
     for (const edit of [...profile.edits].reverse()) {
