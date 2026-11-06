@@ -1,6 +1,6 @@
 # Windows startup delays and renderer reloads
 
-The pinned `26.1029.7803.0` and `26.1029.9216.0` assets support a bounded Statsig startup wait and local renderer exit diagnostics. The full desktop patch preserves existing model, Fast, Ultra, browser, project and reopen patches.
+The pinned `26.1029.7803.0` and `26.1029.9216.0` assets support a bounded Statsig startup wait and local renderer exit diagnostics. The full desktop patch preserves existing model, Fast, Ultra, browser and explicit project patches. Model Experience-only repair does not add the startup edits, and preserves them when already present.
 
 ## Evidence and behavior
 

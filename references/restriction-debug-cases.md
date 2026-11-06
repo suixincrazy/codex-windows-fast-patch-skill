@@ -182,6 +182,21 @@ Action:
 
 ## Browser Client Lacks Privileged Node REPL Capabilities
 
+Desktop `26.1029.7803.0` removes both legacy missing-browser-client-path
+diagnostics while retaining schema-2 native-host registration. The previous
+local installer therefore rejected the package with `missing=browser-client
+path hint` before refreshing stale browser AX assets. In this layout, require
+the paired `browserClientPath` / `browserServicePath` assignments using the
+same join function and plugin root, the expected packaged client/service
+filenames, the schema-2 app-server entry and the existing chunked-message
+protocol marker. Scan with bounded buffers (the observed ASAR exceeds 680 MiB),
+including matches across read boundaries. Do not accept the field names alone.
+The packaged/cache client hashes and both native-host state-file checks remain
+required. This is diagnostic compatibility, not a client-byte, authentication,
+or Desktop gate override. On the contributor's package, local refresh then
+passed core strict verification and Sky `0.7.17` window enumeration; this does
+not establish Chrome navigation, native screenshot/input or proxy routing.
+
 Symptoms:
 
 - Importing the current bundled `scripts\browser-client.mjs` fails immediately with `Browser use requires privileged node_repl capabilities` before browser discovery, tab listing, or Chrome native-host communication.
@@ -1078,6 +1093,14 @@ Target discovery and the proxy patcher now accept matching backtick, double-quot
 The actual Store bundle passed targeted DryRun and syntax validation. Behavior fixtures cover quote equivalence and malformed bindings, and production orchestration fixtures run all three quote styles in Windows PowerShell 5.1 and PowerShell 7. These checks establish preparation compatibility, not installed routing or native screenshot/input acceptance. Recheck fresh child environments and browser operations after deployment. The system-proxy launcher approach in PR #113 addresses a different configuration; it does not replace process-level inheritance when the system proxy is intentionally disabled.
 
 The contributor subsequently installed the proxy-only candidate as `26.1027.3384.1` without recovery. A complete 22,423-entry ASAR comparison found only `early-bootstrap.js` changed; installed ASAR/launcher hashes matched the validated candidate. Fresh Desktop reads passed for eleven core request hosts and eight custom Node children; all 66 sampled connections used the dedicated proxy with the system proxy off. Local IPC, isolated kernels and the artifact daemon were reported separately. Scoped strict verification and provider/CDN reachability passed. Native enumeration returned four windows and forty apps after one initial `list_apps` timeout; native screenshots/input were not exercised. In-app-browser HTTPS navigation and AX succeeded after a pre-repair timeout. Chrome extension/native-host checks and local-page navigation/AX passed, but two navigations to the same public HTTPS page timed out. An independent direct request timed out while an explicit-proxy request returned HTTP 200, consistent with a separate Chrome network-route limitation; this does not establish Chrome HTTPS acceptance. The optional all-bundled check still reported `deep-research` undiscoverable. These are contributor-host results, not guarantees for other versions or networks.
+
+## Desktop 26.1103.3517 native CUA and proxy inheritance
+
+On the exact Store source `26.1103.3517.0` / CLI `0.167.0-alpha.3.2`, the dedicated launcher still supplies the root and backend proxy environment with the Windows system proxy off. Complete live process reads found two CUA MCP and six Node REPL hosts without standard proxy variables, while the root, two backend processes and sixteen custom Node children retained them. Native `getApp`, `listApps` and `listWindows` were available, and read-only enumeration returned forty apps and five windows. The initial 136 connection samples all used the dedicated proxy; the missing CUA environment remains a defect despite that finite sample.
+
+The current bundled AX/cache repair (`install-computer-use-local.ps1 -VerifyOnly`) and separate core `-StrictVerifyOnly` succeeded, including helper enumeration. The optional all-bundled check still found `deep-research` undiscoverable. A full `codex-after-update.ps1 -CheckApp` returned `unsupported`; the direct full DryRun preserved the native Windows CUA guard (`already-open-native-windows`) but stopped at `could not find custom model visibility filter in extracted assets`. Do not apply the pinned 26.1029 complete gate profile to this changed layout. The opt-in `-OnlyNodeReplProxyEnv -DryRun` found the unique builder in `.vite/build/early-bootstrap.js`, reported `patched`, and passed syntax and ASAR-integrity checks. The proxy behavior and targeted-mode fixture suites also passed. A fresh source-bound candidate matched all 19,791 ASAR entries with only `early-bootstrap.js` changed; comparison across 3,761 enumerated source files found only `app.asar` plus its integrity-bearing `ChatGPT.exe` changed among program payloads. This supports a narrow proxy-only candidate, not a full-model or Deep Research repair. Post-install environment, browser and native acceptance require separate evidence.
+
+The contributor then installed the proxy-only candidate as `26.1103.3517.1` without recovery. Installed ASAR/launcher hashes matched the staged files. Fresh complete environment reads covered eleven core request processes and eight custom Node children; all retained standard proxy names. All 114 sampled Desktop-tree connections went through the dedicated proxy, with zero direct and the system proxy off. Core strict verification and provider reachability passed. Native enumeration returned forty apps/five windows; the in-app browser read an official public HTTPS page, and the Chrome extension read a domestic public HTTPS page. Chrome navigation to the same official page still timed out, consistent with an independent direct request timing out while an explicit-proxy request returned HTTP 200. An initial browser inventory logged a Statsig timeout before a later zero-error inventory. These are finite host observations; native screenshot/input, full gate repair and Deep Research discoverability were not established. The initial-to-final config diff was limited to bundled-marketplace metadata and Node REPL environment/trusted paths; selected provider/model, custom MCP, plugin states and protected auth/launcher files were unchanged.
 
 ## Custom stdio MCP Launchers Do Not Inherit The Default Proxy
 

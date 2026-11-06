@@ -5,7 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
-const { resolveManifest, planFiles, patchFiles, transform } = require('./patch-desktop-261029.cjs');
+const { resolveManifest, modelExperienceKinds, planFiles, patchFiles, transform } = require('./patch-desktop-261029.cjs');
 
 const sourceRoot = process.argv[2];
 assert(sourceRoot, 'Pass the original extracted 26.1029 ASAR');
@@ -13,6 +13,13 @@ const manifest = resolveManifest(rel => fs.existsSync(path.join(sourceRoot, rel)
 const models = ['gpt-6-astra', 'fixture-model'];
 const plan = planFiles(sourceRoot, models);
 let checks = 0;
+assert.deepEqual(plan.targets.map(target => target.file), manifest.files.map(profile => profile.file)); checks++;
+for (const target of plan.targets) {
+  delete target.source;
+  delete target.original;
+}
+const projectOnlyFiles = ['.vite/build/early-bootstrap-133-485dbc70b8296756.js',
+  'webview/assets/async/678916.1a2b7b8d2a.js'];
 const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-desktop-261029-'));
 const pending = [];
 
@@ -27,7 +34,13 @@ try {
       // The complete pre-startup patch is a supported upgrade state, not a partial patch.
       const edit = profile.edits.find(edit => edit.kind?.startsWith('startup-')) ?? profile.edits[0];
       const partial = source.replace(edit.before, edit.after.replace('__MODELS_JSON__', JSON.stringify(models)));
-      assert.throws(() => transform(partial, profile, models), /Unsupported/); checks++;
+      const modelEdits = profile.edits.filter(item => modelExperienceKinds.has(item.kind));
+      if (modelEdits.length === 1 && modelEdits[0] === edit) {
+        assert.equal(transform(partial, profile, models).source, patched.source);
+      } else {
+        assert.throws(() => transform(partial, profile, models), /Unsupported/);
+      }
+      checks++;
     }
     for (const edit of profile.edits.filter(edit => edit.kind === 'bundled-deep-research')) {
       const before = vm.runInNewContext('({' + edit.before + '})');
@@ -79,16 +92,53 @@ try {
     fs.mkdirSync(path.dirname(path.join(root, native.file)), {recursive: true});
     fs.copyFileSync(path.join(sourceRoot, native.file), path.join(root, native.file));
   }
-  const bundled = manifest.files.find(profile => profile.edits.some(edit => edit.kind === 'bundled-deep-research'));
-  const membership = require('./patch-project-archive-state.cjs').profiles.find(profile =>
-    require('./patch-project-archive-state.cjs').relativePath(profile) === bundled.file);
-  const legacy = membership.edits.reduce((text, [before, after]) => text.replace(before, after),
-    fs.readFileSync(path.join(sourceRoot, bundled.file), 'utf8'));
-  fs.writeFileSync(path.join(root, bundled.file), legacy);
-  const legacyUpgrade = planFiles(root, models).targets.find(target => target.file === bundled.file);
-  assert.equal(legacyUpgrade.source.includes(bundled.edits[0].after), true);
-  assert.equal(legacyUpgrade.source.includes(membership.edits[0][1]), true);
-  fs.writeFileSync(path.join(root, bundled.file), fs.readFileSync(path.join(sourceRoot, bundled.file))); checks += 2;
+  for (const file of projectOnlyFiles) {
+    assert(!plan.targets.some(target => target.file === file));
+    fs.mkdirSync(path.dirname(path.join(root, file)), {recursive: true});
+    fs.copyFileSync(path.join(sourceRoot, file), path.join(root, file)); checks++;
+  }
+  const modelRoot = path.join(fixture, 'model-asar'), modelBackup = path.join(fixture, 'model-backups');
+  fs.cpSync(root, modelRoot, {recursive: true});
+  const modelPlan = planFiles(modelRoot, models, 'model-experience');
+  assert.equal(modelPlan.targets.length, 21);
+  assert.deepEqual(modelPlan.targets.map(target => target.file), manifest.files.filter(profile =>
+    profile.edits.some(edit => modelExperienceKinds.has(edit.kind))).map(profile => profile.file)); checks += 2;
+  for (const target of modelPlan.targets) {
+    delete target.input;
+    delete target.original;
+    delete target.source;
+  }
+  patchFiles(modelRoot, modelBackup, models, true, 'model-experience');
+  assert(!fs.existsSync(modelBackup)); checks++;
+  const mixed = modelPlan.targets.find(target => target.file === shared.file);
+  const originalMixed = fs.readFileSync(path.join(modelRoot, mixed.file), 'utf8');
+  fs.writeFileSync(path.join(modelRoot, mixed.file), originalMixed.replace(visibility.before,
+    visibility.after.replace('__MODELS_JSON__', JSON.stringify(models))));
+  assert.throws(() => patchFiles(modelRoot, modelBackup, models, false, 'model-experience'), /Unsupported/);
+  assert(!fs.existsSync(modelBackup)); checks += 2;
+  fs.writeFileSync(path.join(modelRoot, mixed.file), originalMixed);
+  patchFiles(modelRoot, modelBackup, models, false, 'model-experience');
+  for (const profile of manifest.files) {
+    const original = fs.readFileSync(path.join(sourceRoot, profile.file), 'utf8');
+    const expected = profile.edits.filter(edit => modelExperienceKinds.has(edit.kind)).reduce((text, edit) =>
+      text.replace(edit.before, () => edit.after.replace('__MODELS_JSON__', JSON.stringify(models))), original);
+    assert.equal(fs.readFileSync(path.join(modelRoot, profile.file), 'utf8'), expected); checks++;
+  }
+  for (const file of projectOnlyFiles) {
+    assert.deepEqual(fs.readFileSync(path.join(modelRoot, file)), fs.readFileSync(path.join(sourceRoot, file)));
+    assert(!fs.existsSync(path.join(modelBackup, file))); checks += 2;
+  }
+  assert(patchFiles(modelRoot, modelBackup, models, false, 'model-experience').files.every(file => file.status === 'already-patched'));
+  assert.equal(patchFiles(modelRoot, modelBackup, ['model-only-updated'], false, 'model-experience').files.filter(file => file.status === 'patched').length, 1);
+  patchFiles(modelRoot, modelBackup, models);
+  assert(patchFiles(modelRoot, modelBackup, models).files.every(file => file.status === 'already-patched'));
+  assert(patchFiles(modelRoot, modelBackup, models, false, 'model-experience').files.every(file => file.status === 'already-patched')); checks += 4;
+  patchFiles(modelRoot, modelBackup, ['full-kept'], false, 'model-experience');
+  for (const target of plan.targets) {
+    const profile = manifest.files.find(profile => profile.file === target.file);
+    assert.equal(fs.readFileSync(path.join(modelRoot, target.file), 'utf8'), transform(target.input, profile, ['full-kept']).source); checks++;
+  }
+  assert.throws(() => planFiles(modelRoot, models, 'unknown'), /Unsupported desktop patch scope/); checks++;
   patchFiles(root, backup, models, true);
   assert(!fs.existsSync(backup)); checks++;
   const last = plan.targets.at(-1);
@@ -98,6 +148,13 @@ try {
   assert(!fs.existsSync(backup)); checks++;
   fs.writeFileSync(path.join(root, last.file), last.input);
   const result = patchFiles(root, backup, models);
+  for (const file of projectOnlyFiles) {
+    assert.deepEqual(fs.readFileSync(path.join(root, file)), fs.readFileSync(path.join(sourceRoot, file)));
+    assert(!fs.existsSync(path.join(backup, file))); checks += 2;
+  }
+  const membershipFile = manifest.files.find(profile => profile.file.includes('/early-bootstrap-632-')).file;
+  const membershipAnchor = 'M.setThreadAssignmentsEnabled(tl().localProjectTaskMembership)';
+  assert(fs.readFileSync(path.join(root, membershipFile), 'utf8').includes(membershipAnchor)); checks++;
   assert(result.files.every(file => file.status === 'patched'));
   assert(patchFiles(root, backup, models).files.every(file => file.status === 'already-patched')); checks += 2;
   const changed = patchFiles(root, backup, ['fixture-model-2']);
