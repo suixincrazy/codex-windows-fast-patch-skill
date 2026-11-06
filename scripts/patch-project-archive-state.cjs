@@ -65,12 +65,16 @@ profiles.push(
   },
 );
 
+// 26.1029.9216 renames only the membership bundle; the project edits are unchanged.
+profiles.push(profiles[3], {...profiles[4], file: 'early-bootstrap-632-de164f1c54edebc1.js',
+  sha256: ['546ae10f69b5bfa096da5c7cb54808f6af26ed494abc2558b6057600766793c8']}, profiles[5]);
+
 function relativePath(profile) {
   return (profile.kind === 'archive-errors' ? 'webview/assets/' : '.vite/build/') + profile.file;
 }
 
 function selectProfiles(hasFile) {
-  const layouts = [profiles.slice(0, 3), profiles.slice(3, 6)];
+  const layouts = [profiles.slice(0, 3), profiles.slice(3, 6), profiles.slice(6, 9)];
   const matches = layouts.filter(layout => layout.every(profile => hasFile(relativePath(profile))));
   if (matches.length !== 1) throw new Error(`Expected one complete project/archive layout, found ${matches.length}`);
   return matches[0];
@@ -93,7 +97,7 @@ function transform(source, profile) {
   try {
     const original = [...profile.edits].reverse().reduce((s, [before, after]) => replaceOnce(s, after, before), source);
     if (profile.sha256.includes(sha256(original))) return { source, status: 'already-patched' };
-    if (profile.file === 'early-bootstrap-632-62c641245a52ef0e.js') {
+    if (profile.file.startsWith('early-bootstrap-632-')) {
       const restored = replaceOnce(original,
         'isAvailable:()=>!0/*codex_windows_deep_research_bundled_plugin_available*/',
         'isAvailable:({features:e})=>e.deepResearch');

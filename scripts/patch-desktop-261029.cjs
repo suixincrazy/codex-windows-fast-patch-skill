@@ -16,6 +16,24 @@ function replaceOnce(source, before, after) {
   return source.replace(before, () => after);
 }
 
+// Later 26.1029 builds rename hashed bundles while keeping every anchor; each
+// variant pins the renamed file and its complete original hash.
+function layouts() {
+  return [{version: manifest.version, files: manifest.files, native: manifest.native},
+    ...(manifest.variants ?? []).map(variant => {
+      const swap = profile => variant.files[profile.file] ? {...profile, ...variant.files[profile.file]} : profile;
+      return {version: variant.version, files: manifest.files.map(swap), native: manifest.native.map(swap)};
+    })];
+}
+
+function resolveManifest(hasFile) {
+  const renamed = new Set((manifest.variants ?? []).flatMap(variant =>
+    Object.entries(variant.files).filter(([from, to]) => from !== to.file).flatMap(([from, to]) => [from, to.file])));
+  const matches = layouts().filter(layout => layout.files.every(profile => !renamed.has(profile.file) || hasFile(profile.file)));
+  if (matches.length !== 1) throw new Error(`Expected one complete 26.1029 desktop layout, found ${matches.length}`);
+  return matches[0];
+}
+
 function validateModels(models) {
   assert(Array.isArray(models) && models.length > 0 && models.every(model =>
     typeof model === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(model)), 'Pass nonempty model identifiers');
@@ -57,9 +75,11 @@ function transform(source, profile, models) {
 
 function planFiles(root, models) {
   models = validateModels(models);
-  const selected = project.selectProfiles(rel => fs.existsSync(path.join(root, rel)));
+  const hasFile = rel => fs.existsSync(path.join(root, rel));
+  const layout = resolveManifest(hasFile);
+  const selected = project.selectProfiles(hasFile);
   assert(selected[0].file === 'early-bootstrap-133-485dbc70b8296756.js', 'Expected the complete 26.1029 project layout');
-  const overlapping = manifest.files.find(profile => selected.some(state => project.relativePath(state) === profile.file));
+  const overlapping = layout.files.find(profile => selected.some(state => project.relativePath(state) === profile.file));
   const targets = new Map();
   for (const profile of selected) {
     const file = project.relativePath(profile);
@@ -77,30 +97,32 @@ function planFiles(root, models) {
         }
       } catch {}
       const result = transform(normalized, combined, models);
-      targets.set(file, {file, input, ...result, status: input === result.source ? 'already-patched' : 'patched'});
+      targets.set(file, {file, input, ...result, kinds: overlapping.edits.map(edit => edit.kind),
+        status: input === result.source ? 'already-patched' : 'patched'});
       continue;
     }
     const result = project.transform(input, profile);
     const original = profile.edits.slice().reverse().reduce((text, [before, after]) => replaceOnce(text, after, before), result.source);
     targets.set(file, { file, input, original, ...result });
   }
-  for (const profile of manifest.files) {
+  for (const profile of layout.files) {
     if (profile === overlapping) continue;
     assert(!targets.has(profile.file), 'Overlapping patch profiles');
     const input = fs.readFileSync(path.join(root, profile.file), 'utf8');
-    targets.set(profile.file, { file: profile.file, input, ...transform(input, profile, models) });
+    targets.set(profile.file, { file: profile.file, input, kinds: profile.edits.map(edit => edit.kind),
+      ...transform(input, profile, models) });
   }
   const reopenInput = fs.readFileSync(path.join(root, reopen.file), 'utf8');
   const reopenResult = reopen.transform(reopenInput);
   targets.set(reopen.file, {file: reopen.file, input: reopenInput,
     original: reopenInput.replace(reopen.after, reopen.before), ...reopenResult});
-  const native = manifest.native.map(profile => {
+  const native = layout.native.map(profile => {
     const source = targets.get(profile.file)?.original ?? fs.readFileSync(path.join(root, profile.file), 'utf8');
     assert.equal(hash(source), profile.sha256, `Unsupported native asset: ${profile.file}`);
     for (const witness of profile.witnesses) assert(source.includes(witness), `Missing native behavior in ${profile.file}`);
     return { file: profile.file, status: 'already-open-native', sha256: profile.sha256 };
   });
-  return { targets: [...targets.values()], native };
+  return { version: layout.version, targets: [...targets.values()], native };
 }
 
 function patchFiles(root, backupRoot, models, checkOnly = false) {
@@ -120,11 +142,11 @@ function patchFiles(root, backupRoot, models, checkOnly = false) {
       fs.writeFileSync(path.join(root, target.file), target.source, { encoding: 'utf8', flush: true });
     }
   }
-  return { version: manifest.version, files: plan.targets.map(target => ({ file: target.file,
-    status: target.status, sha256: hash(target.source) })), native: plan.native };
+  return { version: plan.version, files: plan.targets.map(target => ({ file: target.file,
+    status: target.status, kinds: target.kinds ?? [], sha256: hash(target.source) })), native: plan.native };
 }
 
-module.exports = { manifest, validateModels, restore, transform, planFiles, patchFiles };
+module.exports = { manifest, layouts, resolveManifest, validateModels, restore, transform, planFiles, patchFiles };
 if (require.main === module) {
   const [root, backupRoot, modelsJson, flag] = process.argv.slice(2);
   assert(root && backupRoot && modelsJson && (!flag || flag === '--check'),

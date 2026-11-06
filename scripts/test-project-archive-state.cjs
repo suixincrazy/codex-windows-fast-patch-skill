@@ -196,7 +196,7 @@ async function membershipCases(source, expectBroken) {
       assert.equal(transform(patched[i], profiles[i]).status, 'already-patched'); checks++;
       assert.throws(() => transform(sources[i] + 'changed', profiles[i]), /Unsupported/); checks++;
     }
-    if (profiles[1].file === 'early-bootstrap-632-62c641245a52ef0e.js') {
+    if (profiles[1].file.startsWith('early-bootstrap-632-')) {
       const full = patched[1].replace('isAvailable:({features:e})=>e.deepResearch',
         'isAvailable:()=>!0/*codex_windows_deep_research_bundled_plugin_available*/');
       assert.equal(transform(full, profiles[1]).status, 'already-patched');

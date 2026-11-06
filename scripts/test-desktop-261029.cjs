@@ -5,10 +5,11 @@ const path = require('node:path');
 const os = require('node:os');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
-const { manifest, planFiles, patchFiles, transform } = require('./patch-desktop-261029.cjs');
+const { resolveManifest, planFiles, patchFiles, transform } = require('./patch-desktop-261029.cjs');
 
 const sourceRoot = process.argv[2];
 assert(sourceRoot, 'Pass the original extracted 26.1029 ASAR');
+const manifest = resolveManifest(rel => fs.existsSync(path.join(sourceRoot, rel)));
 const models = ['gpt-6-astra', 'fixture-model'];
 const plan = planFiles(sourceRoot, models);
 let checks = 0;
