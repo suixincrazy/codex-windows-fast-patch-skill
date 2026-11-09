@@ -72,6 +72,10 @@ Do not proceed with a config write if the backup of an existing config fails. Th
 
 For reopening immediately after exit with no window, read [Windows reopen repair](references/windows-reopen-repair.md). Capture the old/new process timeline before selecting the pinned `26.1029` fix, then verify a real quit race and the user's original close/reopen path without a recovery watcher.
 
+For an explicit recurring follow-up refused because it tracks one chat or job,
+use the [thread automation instruction case](references/restriction-debug-cases.md#explicit-recurring-follow-up-is-refused).
+The repair is opt-in and hash-pinned; ordinary full repairs preserve the shipped instructions.
+
 For `failed to spawn code-mode host` or an older CLI selected after Desktop restart, read [executor runtime repair](references/executor-runtime-repair.md). Use the targeted local repair and verify actual post-restart tool execution before declaring recovery.
 
 For recurring update regressions, prefer the repository's
