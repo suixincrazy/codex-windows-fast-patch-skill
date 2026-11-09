@@ -70,6 +70,10 @@ Do not proceed with a config write if the backup of an existing config fails. Th
 
 ## Workflow Selection
 
+For a tray icon missing only after automated restart, read the
+[stale tray case](references/restriction-debug-cases.md#tray-icon-missing-after-forced-package-shutdown).
+Require a live tray owner after restart; a responsive window or successful icon-rectangle query can still describe a stale icon.
+
 For reopening immediately after exit with no window, read [Windows reopen repair](references/windows-reopen-repair.md). Capture the old/new process timeline before selecting the pinned `26.1029` fix, then verify a real quit race and the user's original close/reopen path without a recovery watcher.
 
 For an explicit recurring follow-up refused because it tracks one chat or job,
