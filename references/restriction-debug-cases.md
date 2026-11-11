@@ -6,15 +6,22 @@ Commands below refer to the skill directory as `$SkillRoot`. Resolve it with the
 
 ## Explicit Recurring Follow-Up Is Refused
 
-Desktop `26.1103.4239.0` injects a blanket instruction against automations that
-track a specific job, while its native `automation_update` tool supports
-`kind=heartbeat` with the current chat and minute intervals. This conflicts with
-an explicit request for scheduled follow-ups. The [official scheduled-task guide](https://learn.chatgpt.com/docs/automations?surface=app)
-also describes follow-ups in an existing chat. Distinguish this instruction from
-an actual scheduler, account or workspace error before selecting the repair.
+This is an optional Desktop instruction customization, not a scheduler repair
+or a Windows 10 capture fix. Use it only when the user explicitly requests this
+behavior change. Asking for a scheduled task alone does not authorize patching
+or reinstalling the client. First inspect the actual automation tool and any
+account, workspace or scheduling errors; changing an instruction cannot grant
+missing tool access or prove that a schedule will execute.
+
+The inspected Desktop `26.1103.4239.0` instruction asset prohibits automations
+that track a specific job. This opt-in customization instead permits a native
+heartbeat for explicitly requested scheduled follow-ups in the current chat.
+It is pinned to that asset's complete hash, rather than Windows version or an
+assumed offset. Ordinary full repairs keep the shipped instruction unchanged.
 
 `patch_codex_fast_mode_windows_msix.ps1 -OnlyThreadAutomations -DryRun` checks
-the one pinned instruction asset. After validation, the same mode can prepare
+the one pinned instruction asset in a disposable package copy. After validation
+and explicit deployment authorization, the same mode can prepare
 the signed package for the independent installer workflow. Use
 `-PatchThreadAutomations` to include it in an explicitly requested full patch;
 other targeted modes cannot be combined. Unknown files or partial edits stop
@@ -32,10 +39,13 @@ Run `node scripts/test-thread-automations.cjs <extracted-asar>` and the public
 targeted DryRun. For full-mode composition, also run a full DryRun with
 `-PatchThreadAutomations`, then rerun it on the prepared package. Deploy with
 state backup, a higher-revision recovery package and an independent installer.
-After restart, verify the generated instruction text and test the native
-automation tool with a disposable paused heartbeat, removing it afterwards.
-Report saved-schedule validation separately from actual timed delivery; an old
-turn can still carry the previously injected instructions.
+After an authorized installation and restart, verify the generated instruction
+text. Only with authorization for a test schedule, check saving a disposable
+heartbeat, actual timed execution and stopping at its requested condition, then
+remove it. A paused heartbeat checks saving only, not timed execution. Report
+instruction/package tests, saved-schedule checks and timed delivery separately;
+the latter remain unverified until measured. An old turn can still carry the
+previously injected instructions. No automation is created by these scripts.
 
 ## Browser AX Reports Decompression Failed
 
@@ -255,6 +265,14 @@ Action:
 - Reset the current Node REPL kernel after repair, import the active cached browser client, require `setupBrowserRuntime()` to succeed, and confirm `agent.browsers.get("chrome")` returns the real Chrome extension backend.
 - Finish with a real public HTTPS page read through the Desktop browser channel: verify the final URL, observed title and meaningful visible content, then close the temporary tab. Fixed selector assertions require a task-owned fixture; third-party page structure is not a runtime contract.
 - If the official diagnostics fail, repair the concrete extension/native-host problem instead and rerun the same diagnostics before attempting browser-client setup again.
+
+## Core Strict Check Rejects a Trusted Parent Directory
+
+When core strict reports `config.toml Node REPL trusted paths do not include the stable physical root`, inspect the configured directory coverage. The Node REPL runtime canonicalizes trusted roots and accepts their descendants. Desktop can regenerate the config with `CODEX_HOME` as a trusted parent, covering a marketplace located beneath that home. The former exact-string comparison rejected that valid configuration after restart.
+
+The checker now resolves physical directory identities and compares case-insensitive prefixes with directory boundaries. Both the generated configuration and the user environment must cover each required root. Physical roots outside `CODEX_HOME` require the persisted external-trust ASAR marker, including marketplace junctions whose targets escape the home directory.
+
+Run `test-node-repl-trusted-coverage.ps1 -TemporaryRoot <local-test-root>` in Windows PowerShell 5.1 and PowerShell 7, followed by `test-node-repl-trusted-config.ps1` and `test-chrome-native-host-v2-state.ps1`. The coverage suite exercises exact roots, trusted parents, aliases, misleading sibling prefixes, missing/relative roots and external-marker enforcement through production functions. Repeat core strict against the existing configuration to verify the diagnostic repair.
 
 ## Computer Use Settings Says Plugin Unavailable
 
@@ -1144,6 +1162,16 @@ On the exact Store source `26.1103.3517.0` / CLI `0.167.0-alpha.3.2`, the dedica
 The current bundled AX/cache repair (`install-computer-use-local.ps1 -VerifyOnly`) and separate core `-StrictVerifyOnly` succeeded, including helper enumeration. The optional all-bundled check still found `deep-research` undiscoverable. A full `codex-after-update.ps1 -CheckApp` returned `unsupported`; the direct full DryRun preserved the native Windows CUA guard (`already-open-native-windows`) but stopped at `could not find custom model visibility filter in extracted assets`. Do not apply the pinned 26.1029 complete gate profile to this changed layout. The opt-in `-OnlyNodeReplProxyEnv -DryRun` found the unique builder in `.vite/build/early-bootstrap.js`, reported `patched`, and passed syntax and ASAR-integrity checks. The proxy behavior and targeted-mode fixture suites also passed. A fresh source-bound candidate matched all 19,791 ASAR entries with only `early-bootstrap.js` changed; comparison across 3,761 enumerated source files found only `app.asar` plus its integrity-bearing `ChatGPT.exe` changed among program payloads. This supports a narrow proxy-only candidate, not a full-model or Deep Research repair. Post-install environment, browser and native acceptance require separate evidence.
 
 The contributor then installed the proxy-only candidate as `26.1103.3517.1` without recovery. Installed ASAR/launcher hashes matched the staged files. Fresh complete environment reads covered eleven core request processes and eight custom Node children; all retained standard proxy names. All 114 sampled Desktop-tree connections went through the dedicated proxy, with zero direct and the system proxy off. Core strict verification and provider reachability passed. Native enumeration returned forty apps/five windows; the in-app browser read an official public HTTPS page, and the Chrome extension read a domestic public HTTPS page. Chrome navigation to the same official page still timed out, consistent with an independent direct request timing out while an explicit-proxy request returned HTTP 200. An initial browser inventory logged a Statsig timeout before a later zero-error inventory. These are finite host observations; native screenshot/input, full gate repair and Deep Research discoverability were not established. The initial-to-final config diff was limited to bundled-marketplace metadata and Node REPL environment/trusted paths; selected provider/model, custom MCP, plugin states and protected auth/launcher files were unchanged.
+
+## Desktop Selects a Package-Backed CUA Runtime
+
+Desktop `26.1103.7773.0` can materialize the unified CUA command, Node REPL command, module roots and `CODEX_CLI_PATH` directly under the current package's `app/resources`. Live native enumeration and in-app-browser HTTPS/AX reading succeeded with that layout, while `install-computer-use-local.ps1 -StrictVerifyOnly` stopped at `no current user-local CUA Node runtime matches`. Its runtime inventory still requires extracted user-local Node binaries. Repeatedly launching Desktop does not establish that this older extraction contract applies.
+
+Compare the actual running backend/CUA/Node REPL executable paths with the exact current package and the active materialized manifest before choosing a repair. If they consistently select the package-backed runtime, retain those native paths. The existing local repair also assumes writable extracted runtime assets and persisted user-local CLI pins. Keep its strict result recorded as unsupported until those contracts are adapted together. A copied runtime or a relaxed inventory check alone cannot establish compatibility.
+
+Verify the requested layers separately with fresh Desktop API enumeration, complete process-environment reads and owner-attributed connection samples. When browser checks are requested, check Chrome and the in-app browser independently. Report the legacy strict limitation and the operations actually exercised. Enumeration does not establish screenshot/input acceptance, and working browser navigation does not establish complete proxy inheritance.
+
+When the Desktop parent retains explicit proxies but the current CUA children lose them, the existing `-OnlyNodeReplProxyEnv -DryRun` can still identify the unique builder in `early-bootstrap.js`. Require the normal syntax, ASAR integrity and complete payload-scope checks, signed recovery package and independent installer. After deployment, verify fresh child environments and routing again. Preserve the package-backed runtime and native surface during that targeted repair. Do not run the legacy local repair automatically after installing this layout merely to obtain a passing strict result.
 
 ## Custom stdio MCP Launchers Do Not Inherit The Default Proxy
 

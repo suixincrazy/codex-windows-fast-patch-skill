@@ -44,8 +44,10 @@ If the normal workflow does not explain a restriction, plugin gate, Computer Use
 For Desktop 26.1021 native Windows CUA or a Power slider moved into `app-primary`, use the native-layout case in that reference. Preserve the shipped Windows readiness and installed-plugin guards when the patcher reports `already-open-native-windows`.
 For browser AX `Decompression failed`, use the AX asset case in that reference. For missing CUA child proxy variables, use its read-only process probe before selecting the opt-in `-OnlyNodeReplProxyEnv` or `-OnlyComputerUseSurfaceAndProxyEnv` repair; missing root-process proxy settings alone do not justify a package patch.
 For Desktop 26.1029 `missing=browser-client path hint`, use the Browser Client trust-contract case there: the legacy diagnostic disappeared, while paired schema-2 native-host registration survives. Update the diagnostic before refreshing local caches; do not modify the trusted browser client or broaden Desktop gates.
+For `no current user-local CUA Node runtime matches` after Desktop has already started, inspect the [package-backed CUA runtime case](references/restriction-debug-cases.md#desktop-selects-a-package-backed-cua-runtime) before running a local repair. Desktop can select `app/resources/cua_node` directly. The legacy extracted-runtime verifier remains unsupported for that layout, and its failure does not establish a broken live CUA transport.
 Desktop `26.1027.3384.0` uses a double-quoted registered-core anchor in `early-bootstrap.js`; the proxy-only matcher supports this webpack layout. Keep the native CUA surface unchanged when enumeration already works, and distinguish a successful DryRun from post-install routing acceptance.
 When the requested repair includes default proxy routing for custom stdio MCP servers, inspect their actual launcher and server processes too. A passing Desktop/backend/CUA check does not establish custom MCP inheritance. Use the custom stdio MCP proxy case in that reference for a config-only `env_vars` repair; the CUA ASAR patch does not add proxy allowlists to unrelated MCP servers.
+For a core strict trusted-root error when the config already contains a parent directory, follow the [trusted parent directory case](references/restriction-debug-cases.md#core-strict-check-rejects-a-trusted-parent-directory) and verify physical directory coverage.
 If the task is phone remote control, QR pairing, mobile setup, isolated remote OAuth, remote-control WebSocket, or post-pairing API endpoint diagnosis, read `references/remote-control-debug-cases.md` before editing scripts or repatching.
 If a removed plugin or marketplace leaves stale `[plugins."..."]` or `[hooks.state."..."]` tables in `config.toml`, use the orphaned plugin config case in `references/restriction-debug-cases.md` before deleting anything.
 
@@ -76,9 +78,11 @@ Require a live tray owner after restart; a responsive window or successful icon-
 
 For reopening immediately after exit with no window, read [Windows reopen repair](references/windows-reopen-repair.md). Capture the old/new process timeline before selecting the pinned `26.1029` fix, then verify a real quit race and the user's original close/reopen path without a recovery watcher.
 
-For an explicit recurring follow-up refused because it tracks one chat or job,
-use the [thread automation instruction case](references/restriction-debug-cases.md#explicit-recurring-follow-up-is-refused).
-The repair is opt-in and hash-pinned; ordinary full repairs preserve the shipped instructions.
+Only when the user explicitly requests changing Desktop's scheduled-follow-up
+instructions, use the [optional thread automation customization](references/restriction-debug-cases.md#explicit-recurring-follow-up-is-refused).
+It is hash-pinned and not Windows-10-specific. Ordinary full repairs preserve
+the shipped instructions; a scheduling request alone does not authorize client
+repackaging or installation. It does not repair the scheduler or create a task.
 
 For `failed to spawn code-mode host` or an older CLI selected after Desktop restart, read [executor runtime repair](references/executor-runtime-repair.md). Use the targeted local repair and verify actual post-restart tool execution before declaring recovery.
 
@@ -206,6 +210,9 @@ For explicit project repair, preserve the shipped content-owner account
 isolation; this version needs durable-write recovery rather than the old
 renderer-owner rewrite. Run `test-project-state-261106.cjs`, the archive,
 desktop, heartbeat and composition regressions against original assets.
+Validate the public ASAR dispatch with `test-desktop-msix-dispatch.ps1
+-SourceAsarRoot <original-assets> -TemporaryRoot <scratch>` for full, model,
+marketplace and explicit heartbeat modes.
 Its Sky 0.7.18 helper stays unchanged; enumeration does not establish capture
 or input acceptance. `codex-after-update.ps1 -CheckApp` removes only its
 sentinel-checked scratch directory, including dependencies beyond MAX_PATH.
